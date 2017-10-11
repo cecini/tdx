@@ -1,17 +1,22 @@
 from pytdx.hq import TdxHq_API
 from pytdx.exhq import TdxExHq_API
+from pytdx.params import TDXParams
+from pytdx.util.best_ip import select_best_ip
+
 import pandas as pd
 from tdx.utils.memoize import lazyval
-from pytdx.util.best_ip import select_best_ip
 from concurrent.futures import ThreadPoolExecutor
-import concurrent
+
 
 def stock_filter(code):
-    if code[0] == '6' or code[0] == '0':
-        return True
-    if code.startswith("300") or code.startswith("1318"):
-        return True
+    if code[0] == 1:
+        if code[1][0] == '6':
+            return True
+    else:
+        if code[1].startswith("300") or code[1][:2] == '00':
+            return True
     return False
+
 
 class Engine:
 
@@ -28,12 +33,10 @@ class Engine:
 
         self.executor = ThreadPoolExecutor(self.thread_num)
 
-
     def connect(self):
         self.api.connect(self.ip)
         for api in self.apis:
             api.connect(self.ip)
-
 
     def __enter__(self):
         return self
@@ -74,11 +77,24 @@ class Engine:
 
     @lazyval
     def stock_list(self):
-        return self.security_list[self.security_list.code.apply(stock_filter)]
+        aa = map(stock_filter,self.security_list.index.tolist())
+        return self.security_list[aa]
 
     @lazyval
     def best_ip(self):
         return select_best_ip()
+
+    @lazyval
+    def concept(self):
+        return self.api.to_df(self.api.get_and_parse_block_info(TDXParams.BLOCK_GN))
+
+    @lazyval
+    def index(self):
+        return self.api.to_df(self.api.get_and_parse_block_info(TDXParams.BLOCK_SZ))
+
+    @lazyval
+    def fengge(self):
+        return self.api.to_df(self.api.get_and_parse_block_info(TDXParams.BLOCK_FG))
 
 
 class ExEngine:
