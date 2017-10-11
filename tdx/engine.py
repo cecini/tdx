@@ -2,6 +2,7 @@ from pytdx.hq import TdxHq_API
 from pytdx.exhq import TdxExHq_API
 import pandas as pd
 from tdx.utils.memoize import lazyval
+from pytdx.util.best_ip import select_best_ip
 
 def stock_filter(code):
     if code[0] == '6' or code[0] == '0':
@@ -14,9 +15,14 @@ class Engine:
 
     def __init__(self,*args,**kwargs):
         self.api = TdxHq_API(args,kwargs)
+        if kwargs.pop('best_ip',False):
+            self.ip = self.best_ip
+        else:
+            self.ip = '101.227.73.20'
+
 
     def connect(self):
-        self.api.connect()
+        self.api.connect(self.ip)
 
     def __enter__(self):
         return self
@@ -54,6 +60,10 @@ class Engine:
     @lazyval
     def stock_list(self):
         return self.security_list[self.security_list.code.apply(stock_filter)]
+
+    @lazyval
+    def best_ip(self):
+        return select_best_ip()
 
 
 class ExEngine:

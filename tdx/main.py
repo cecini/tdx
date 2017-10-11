@@ -1,7 +1,7 @@
 from tdx.engine import Engine,ExEngine
 import datetime
 
-engine = Engine(auto_retry=True,multithread=True)
+engine = Engine(auto_retry=True,multithread=True,best_ip=True)
 engine.connect()
 
 while True:
