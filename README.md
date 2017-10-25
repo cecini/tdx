@@ -1,0 +1,5 @@
+# tdx
+Pytdx 是一款纯Python语言开发的类似TradeX的行情数据接口的实现，
+
+
+tdx只是对pytdx进行粗略的封装，pytdx详情见https://github.com/rainx/pytdx
