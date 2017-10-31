@@ -57,7 +57,7 @@ class Engine:
 
         self.thread_num = kwargs.pop('thread_num', 1)
 
-        if PY2 and self.thread_num != 1:
+        if not PY2 and self.thread_num != 1:
             self.use_concurrent = True
         else:
             self.use_concurrent = False
