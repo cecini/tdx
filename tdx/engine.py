@@ -8,6 +8,7 @@ from tdx.utils.paths import tdx_path
 import pandas as pd
 from tdx.utils.memoize import lazyval
 from six import PY2
+
 if not PY2:
     from concurrent.futures import ThreadPoolExecutor
 
@@ -71,6 +72,7 @@ class Engine:
         if self.use_concurrent:
             for api in self.apis:
                 api.connect(self.ip)
+        return self
 
     def __enter__(self):
         return self
@@ -100,8 +102,9 @@ class Engine:
     def stock_quotes(self):
         code = self.stock_list.index.tolist()
         if self.use_concurrent:
-            res = {self.executor.submit(self.apis[pos % self.thread_num].get_security_quotes, code[80 * pos:80 * (pos + 1)]) \
-                   for pos in range(int(len(code) / 80) + 1)}
+            res = {
+            self.executor.submit(self.apis[pos % self.thread_num].get_security_quotes, code[80 * pos:80 * (pos + 1)]) \
+            for pos in range(int(len(code) / 80) + 1)}
             return pd.concat([self.api.to_df(dic.result()) for dic in res])
         else:
             data = [self.api.to_df(self.api.get_security_quotes(
@@ -197,6 +200,7 @@ class ExEngine:
 
     def connect(self):
         self.api.connect('61.152.107.141', 7727)
+        return self
 
     def __enter__(self):
         return self
