@@ -3,6 +3,7 @@ from pytdx.exhq import TdxExHq_API
 from pytdx.params import TDXParams
 from pytdx.util.best_ip import select_best_ip
 from pytdx.reader import CustomerBlockReader, GbbqReader
+from tdx.utils.paths import tdx_path
 
 import pandas as pd
 from tdx.utils.memoize import lazyval
