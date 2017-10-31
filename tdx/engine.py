@@ -25,6 +25,10 @@ def stock_filter(code):
     return False
 
 
+class SecurityNotExists(Exception):
+    pass
+
+
 ### return 1 if sh, 0 if sz
 def get_stock_type(stock):
     one = stock[0]
@@ -129,15 +133,28 @@ class Engine:
         df['datetime'] = pd.to_datetime(df['datetime'], format='%Y%m%d')
         return df
 
-    def get_security_bars(self, code, freq):
-        exchange = get_stock_type(code)
+    def get_security_type(self, code):
+        if code in self.security_list.code.values:
+            return self.security_list[self.security_list.code == code]['sse'].as_matrix()[0]
+        else:
+            raise SecurityNotExists()
+
+    def get_security_bars(self, code, freq, index=False):
+        if index:
+            exchange = self.get_security_type(code)
+            func = self.api.get_index_bars
+        else:
+            exchange = get_stock_type(code)
+            func = self.api.get_security_bars
+
+        df = pd.DataFrame()
         if freq in ['1d', 'day']:
             freq = 9
             df = pd.concat(
-                [self.api.to_df(self.api.get_security_bars(freq, exchange, code,
-                                                           (
-                                                               SECURITY_BARS_PATCH_NUM1 - i - 1) * SECURITY_BARS_PATCH_SIZE,
-                                                           SECURITY_BARS_PATCH_SIZE)) for i in
+                [self.api.to_df(func(freq, exchange, code,
+                                     (
+                                         SECURITY_BARS_PATCH_NUM1 - i - 1) * SECURITY_BARS_PATCH_SIZE,
+                                     SECURITY_BARS_PATCH_SIZE)) for i in
                  range(SECURITY_BARS_PATCH_NUM1)]).drop(
                 ['year', 'month', 'day', 'hour', 'minute'], axis=1)
             df['datetime'] = pd.to_datetime(df.datetime)
@@ -145,12 +162,16 @@ class Engine:
             freq = 8
             df = pd.concat(
                 [self.api.to_df(
-                    self.api.get_security_bars(freq, exchange, code,
-                                               (SECURITY_BARS_PATCH_NUM2 - i - 1) * SECURITY_BARS_PATCH_SIZE,
-                                               SECURITY_BARS_PATCH_SIZE)) for i in
+                    func(freq, exchange, code,
+                         (SECURITY_BARS_PATCH_NUM2 - i - 1) * SECURITY_BARS_PATCH_SIZE,
+                         SECURITY_BARS_PATCH_SIZE)) for i in
                     range(SECURITY_BARS_PATCH_NUM2)]).drop(
                 ['year', 'month', 'day', 'hour', 'minute'], axis=1)
             df['datetime'] = pd.to_datetime(df.datetime)
+        else:
+            print("1d and 1m frequency supported only")
+            exit(-1)
+        df['code'] = code
         return df.set_index('datetime')
 
 

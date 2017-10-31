@@ -31,11 +31,10 @@ def test_minute_time_data():
 
 
 def test_quotes():
-    while True:
-        start_dt = datetime.datetime.now()
-        quote = engine.stock_quotes()
-        print(datetime.datetime.now() - start_dt).total_seconds()
-        process_quotes(quote)
+    start_dt = datetime.datetime.now()
+    quote = engine.stock_quotes()
+    print(datetime.datetime.now() - start_dt).total_seconds()
+    process_quotes(quote)
 
 if __name__ == '__main__':
     engine = Engine(auto_retry=True, multithread=True, best_ip=True, thread_num=8)
