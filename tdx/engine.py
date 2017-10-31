@@ -47,9 +47,9 @@ class Engine:
         if kwargs.pop('best_ip', False):
             self.ip = self.best_ip
         else:
-            self.ip = '101.227.73.20'
+            self.ip = '14.17.75.71'
 
-        self.ip = kwargs.pop('ip', '101.227.73.20')
+        self.ip = kwargs.pop('ip', '14.17.75.71')
 
         self.thread_num = kwargs.pop('thread_num', 8)
 
