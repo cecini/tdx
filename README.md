@@ -1,4 +1,6 @@
 # tdx
+[![Build Status](https://travis-ci.org/JaysonAlbert/tdx.svg?branch=master)](https://travis-ci.org/JaysonAlbert/tdx)
+
 Pytdx 是一款纯Python语言开发的类似TradeX的行情数据接口的实现，
 
 
