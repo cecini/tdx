@@ -64,8 +64,7 @@ class Engine:
         self.api = TdxHq_API(args, kwargs)
         if self.use_concurrent:
             self.apis = [TdxHq_API(args, kwargs) for i in range(self.thread_num)]
-
-        self.executor = ThreadPoolExecutor(self.thread_num)
+            self.executor = ThreadPoolExecutor(self.thread_num)
 
     def connect(self):
         self.api.connect(self.ip)
