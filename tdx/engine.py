@@ -51,30 +51,34 @@ class Engine:
 
         self.ip = kwargs.pop('ip', '14.17.75.71')
 
-        self.thread_num = kwargs.pop('thread_num', 8)
+        self.thread_num = kwargs.pop('thread_num', 1)
 
         self.api = TdxHq_API(args, kwargs)
-        self.apis = [TdxHq_API(args, kwargs) for i in range(self.thread_num)]
+        if self.thread_num != 1:
+            self.apis = [TdxHq_API(args, kwargs) for i in range(self.thread_num)]
 
         self.executor = ThreadPoolExecutor(self.thread_num)
 
     def connect(self):
         self.api.connect(self.ip)
-        for api in self.apis:
-            api.connect(self.ip)
+        if self.thread_num != 1:
+            for api in self.apis:
+                api.connect(self.ip)
 
     def __enter__(self):
         return self
 
     def exit(self):
         self.api.disconnect()
-        for api in self.apis:
-            api.disconnect()
+        if self.thread_num != 1:
+            for api in self.apis:
+                api.disconnect()
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.api.disconnect()
-        for api in self.apis:
-            api.disconnect()
+        if self.thread_num != 1:
+            for api in self.apis:
+                api.disconnect()
 
     def quotes(self, code):
         code = [code] if not isinstance(code, list) else code
@@ -88,9 +92,14 @@ class Engine:
 
     def stock_quotes(self):
         code = self.stock_list.index.tolist()
-        res = {self.executor.submit(self.apis[pos % self.thread_num].get_security_quotes, code[80 * pos:80 * (pos + 1)]) \
-               for pos in range(int(len(code) / 80) + 1)}
-        return pd.concat([self.api.to_df(dic.result()) for dic in res])
+        if self.thread_num != 1:
+            res = {self.executor.submit(self.apis[pos % self.thread_num].get_security_quotes, code[80 * pos:80 * (pos + 1)]) \
+                   for pos in range(int(len(code) / 80) + 1)}
+            return pd.concat([self.api.to_df(dic.result()) for dic in res])
+        else:
+            data = [self.api.to_df(self.api.get_security_quotes(
+                code[80 * pos:80 * (pos + 1)])) for pos in range(int(len(code) / 80) + 1)]
+            return pd.concat(data)
 
     @lazyval
     def security_list(self):
