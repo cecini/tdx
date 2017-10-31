@@ -7,7 +7,9 @@ from tdx.utils.paths import tdx_path
 
 import pandas as pd
 from tdx.utils.memoize import lazyval
-from concurrent.futures import ThreadPoolExecutor
+from six import PY2
+if not PY2:
+    from concurrent.futures import ThreadPoolExecutor
 
 from .config import *
 
@@ -54,15 +56,20 @@ class Engine:
 
         self.thread_num = kwargs.pop('thread_num', 1)
 
+        if PY2 and self.thread_num != 1:
+            self.use_concurrent = True
+        else:
+            self.use_concurrent = False
+
         self.api = TdxHq_API(args, kwargs)
-        if self.thread_num != 1:
+        if self.use_concurrent:
             self.apis = [TdxHq_API(args, kwargs) for i in range(self.thread_num)]
 
         self.executor = ThreadPoolExecutor(self.thread_num)
 
     def connect(self):
         self.api.connect(self.ip)
-        if self.thread_num != 1:
+        if self.use_concurrent:
             for api in self.apis:
                 api.connect(self.ip)
 
@@ -71,13 +78,13 @@ class Engine:
 
     def exit(self):
         self.api.disconnect()
-        if self.thread_num != 1:
+        if self.use_concurrent:
             for api in self.apis:
                 api.disconnect()
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.api.disconnect()
-        if self.thread_num != 1:
+        if self.use_concurrent:
             for api in self.apis:
                 api.disconnect()
 
@@ -93,7 +100,7 @@ class Engine:
 
     def stock_quotes(self):
         code = self.stock_list.index.tolist()
-        if self.thread_num != 1:
+        if self.use_concurrent:
             res = {self.executor.submit(self.apis[pos % self.thread_num].get_security_quotes, code[80 * pos:80 * (pos + 1)]) \
                    for pos in range(int(len(code) / 80) + 1)}
             return pd.concat([self.api.to_df(dic.result()) for dic in res])
