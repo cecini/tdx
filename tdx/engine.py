@@ -114,7 +114,7 @@ class Engine:
     @lazyval
     def stock_list(self):
         aa = map(stock_filter, self.security_list.index.tolist())
-        return self.security_list[aa]
+        return self.security_list[list(aa)]
 
     @lazyval
     def best_ip(self):
