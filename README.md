@@ -8,4 +8,4 @@ tdx只是对pytdx进行粗略的封装，pytdx详情见https://github.com/rainx/
 
 **安装：**
 
-    pip install git+https://github.com/JaysonAlbert/tdx.git
+    pip install tdx_wrapper
