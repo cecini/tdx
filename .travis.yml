@@ -12,7 +12,6 @@ install:
     - pip install nose           # Add me to install nose
 
 script:
-    - pytest
     - nosetests --with-coverage # Add me to run nose with coverage support.
 after_success:
     - coveralls

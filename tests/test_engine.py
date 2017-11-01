@@ -1,11 +1,13 @@
-import pytest
 from tdx.engine import Engine
 
 
-@pytest.mark.parametrize("best_ip", [True, False])
-@pytest.mark.parametrize("thread_num", [4,1])
-def test_engine_func(best_ip, thread_num):
-    engine = Engine(best_ip=best_ip,thread_num=thread_num)
+def test_engine():
+    yield engine_func, True, 1
+    yield engine_func, False, 4
+
+
+def engine_func(best_ip, thread_num):
+    engine = Engine(best_ip=best_ip, thread_num=thread_num)
 
     with engine.connect():
         assert engine.best_ip is not None
