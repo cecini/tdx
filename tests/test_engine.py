@@ -2,15 +2,10 @@ import pytest
 from tdx.engine import Engine
 
 
-@pytest.mark.parametrize("auto_retry", [False, True])
-@pytest.mark.parametrize("multithread", [False])
-@pytest.mark.parametrize("heartbeat", [False, True])
 @pytest.mark.parametrize("best_ip", [True, False])
-@pytest.mark.parametrize("thread_num", [4])
-@pytest.mark.parametrize("raise_exception", [False])
-def test_engine_func(auto_retry, multithread, heartbeat, best_ip, thread_num, raise_exception):
-    engine = Engine(auto_retry=auto_retry, multithread=multithread, heartbeat=heartbeat, best_ip=best_ip,
-                    thread_num=thread_num, raise_exception=raise_exception)
+@pytest.mark.parametrize("thread_num", [4,None])
+def test_engine_func(best_ip, thread_num):
+    engine = Engine(best_ip=best_ip,thread_num=thread_num)
 
     with engine.connect():
         assert engine.best_ip is not None
