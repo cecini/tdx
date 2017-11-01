@@ -10,8 +10,8 @@ except (IOError, ImportError):
     long_description = ''
 
 setup(
-    name='tdx',
-    version='0.04',
+    name='tdx_wrapper',
+    version='0.4',
     description='A Python wrapper of pytdx',
     long_description=long_description,
     author='Jie Wang',
