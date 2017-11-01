@@ -46,6 +46,33 @@ def get_stock_type(stock):
     return 0
 
 
+if not PY2:
+    import queue
+
+
+    class ConcurrentApi:
+        def __init__(self, *args, **kwargs):
+            self.thread_num = kwargs.pop('thread_num', 4)
+            self.ip = kwargs.pop('ip', '14.17.75.71')
+            self.executor = ThreadPoolExecutor(self.thread_num)
+
+            self.queue = queue.Queue(self.thread_num)
+            for i in range(self.thread_num):
+                api = TdxHq_API(args, kwargs)
+                api.connect(self.ip)
+                self.queue.put(api)
+
+        def __getattr__(self, item):
+            api = self.queue.get()
+            func = api.__getattribute__(item)
+
+            def wrapper(*args, **kwargs):
+                res = self.executor.submit(func,*args, **kwargs)
+                self.queue.put(api)
+                return res
+            return wrapper
+
+
 class Engine:
     def __init__(self, *args, **kwargs):
         if kwargs.pop('best_ip', False):
@@ -103,8 +130,9 @@ class Engine:
         code = self.stock_list.index.tolist()
         if self.use_concurrent:
             res = {
-            self.executor.submit(self.apis[pos % self.thread_num].get_security_quotes, code[80 * pos:80 * (pos + 1)]) \
-            for pos in range(int(len(code) / 80) + 1)}
+                self.executor.submit(self.apis[pos % self.thread_num].get_security_quotes,
+                                     code[80 * pos:80 * (pos + 1)]) \
+                for pos in range(int(len(code) / 80) + 1)}
             return pd.concat([self.api.to_df(dic.result()) for dic in res])
         else:
             data = [self.api.to_df(self.api.get_security_quotes(
