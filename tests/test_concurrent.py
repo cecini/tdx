@@ -7,7 +7,7 @@ if not PY2:
     import time
 
 
-    def concurrent_api(num=4):
+    def concurrent_api(num=2):
         capi = ConcurrentApi(thread_num=num)
         now = datetime.now()
         data = {capi.get_security_list(0, 100) for i in range(100)}
@@ -15,7 +15,7 @@ if not PY2:
         return (datetime.now() - now).total_seconds()
 
 
-    def normal_api():
+    def original_api():
         api = TdxHq_API()
         api.connect()
         now = datetime.now()
@@ -23,7 +23,7 @@ if not PY2:
         return (datetime.now() - now).total_seconds()
 
 
-    def concurrent_quotes(code,best_ip,num=4):
+    def concurrent_quotes(code,best_ip,num=2):
         capi = ConcurrentApi(thread_num=num, ip=best_ip)
         now = datetime.now()
         data = {capi.get_security_quotes(
@@ -33,7 +33,7 @@ if not PY2:
         return (datetime.now() - now).total_seconds()
 
 
-    def normal_quotes(code,best_ip):
+    def original_quotes(code,best_ip):
         api = TdxHq_API()
         api.connect(best_ip)
         now = datetime.now()
@@ -51,7 +51,7 @@ if not PY2:
         return (datetime.now() - now).total_seconds()
 
 
-    def normal_engine_quotes():
+    def original_engine_quotes():
         engine = Engine(best_ip=True)
         engine.connect()
         engine.stock_list.index.tolist()
@@ -68,11 +68,8 @@ if not PY2:
         api.connect()
         best_ip = engine.best_ip
 
-        concurrent_api(2)
-        normal_api()
+        print("security list: ({},{})".format(concurrent_api(2),original_api()))
 
-        concurrent_quotes(code,best_ip,2)
-        normal_quotes(code,best_ip)
+        print("concurrent quotes ({},{})".format(concurrent_quotes(code,best_ip,2),original_quotes(code,best_ip)))
 
-        concurrent_engine_quotes(2)
-        normal_engine_quotes()
+        print("concurrent engine quotes ({},{})".format(concurrent_engine_quotes(2),original_engine_quotes()))
