@@ -11,7 +11,7 @@ except (IOError, ImportError):
 
 setup(
     name='tdx_wrapper',
-    version='0.43',
+    version='0.45',
     description='A Python wrapper of pytdx',
     long_description=long_description,
     author='Jie Wang',
@@ -20,7 +20,8 @@ setup(
     packages=find_packages(),
     install_requires=[
         'pytdx',
-        'toolz'
+        'toolz',
+        'cn-stock-holidays',
     ],
 
     package_data = {'tdx': ['data/*','data/blocknew/*']},

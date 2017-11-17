@@ -4,6 +4,8 @@ from tdx.engine import Engine
 import datetime
 from tdx.utils.round import precise_round
 import pandas as pd
+from cn_stock_holidays.zipline.default_calendar import shsz_calendar
+import click
 
 
 def process_quotes(quotes):
@@ -36,10 +38,28 @@ def test_quotes():
     print(datetime.datetime.now() - start_dt).total_seconds()
     process_quotes(quote)
 
+
 if __name__ == '__main__':
-    engine = Engine(auto_retry=True, multithread=True, best_ip=True, thread_num=8)
-    engine.connect()
+    engine = Engine(auto_retry=True, multithread=True, thread_num=8)
+    with engine.connect():
 
-    test_quotes()
+        start = '20171001'
+        end = '20171010'
+        code = '000001'
 
-    engine.exit()
+        from cn_stock_holidays.zipline.default_calendar import shsz_calendar
+
+        print(shsz_calendar.sessions_in_range(pd.Timestamp('20171001'),pd.Timestamp('20171010')))
+        time = datetime.datetime.now()
+        # print(engine.get_k_data(code,start,end,"1min"))
+        # print((datetime.datetime.now()  - time).total_seconds())
+
+
+        # with click.progressbar(timestamp2int(sessions),
+        #                        item_show_func=lambda e: e if e is None else str(e[0])
+        #                        ) as date:
+        #     print(engine.get_transaction('000001', date))
+
+        # test_quotes()
+        # print(engine.get_security_bars('513500','1d'))
+
