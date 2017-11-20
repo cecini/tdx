@@ -24,3 +24,17 @@ def engine_func(best_ip, thread_num):
         assert engine.fengge is not None
         assert engine.index is not None
         assert engine.stock_list is not None
+
+
+def transactions():
+    eg = Engine(best_ip=True)
+    eg.connect()
+    m1 = eg.get_security_bars('000001', '1m')
+    df = eg.time_and_price('000001')
+    ohlcv = df.price.resample('1 Min', label='right', closed='left').ohlc()
+    ohlcv['volume'] = df.vol.resample('1 Min', label='right', closed='left').sum()
+    print(ohlcv)
+    print(m1)
+
+
+transactions()

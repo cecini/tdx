@@ -4,6 +4,7 @@ from pytdx.params import TDXParams
 from pytdx.util.best_ip import select_best_ip
 from pytdx.reader import CustomerBlockReader, GbbqReader
 from tdx.utils.paths import tdx_path
+import pandas as pd
 
 import pandas as pd
 from tdx.utils.memoize import lazyval
@@ -13,10 +14,6 @@ if not PY2:
     from concurrent.futures import ThreadPoolExecutor
 
 from .config import *
-
-SECURITY_BARS_PATCH_NUM1 = 10  # 10 * 800
-SECURITY_BARS_PATCH_NUM2 = 26  # 10 * 800
-SECURITY_BARS_PATCH_SIZE = 800
 
 
 def stock_filter(code):
@@ -44,6 +41,34 @@ def get_stock_type(stock):
         return 1
 
     return 0
+
+
+if not PY2:
+    import queue
+
+
+    class ConcurrentApi:
+        def __init__(self, *args, **kwargs):
+            self.thread_num = kwargs.pop('thread_num', 4)
+            self.ip = kwargs.pop('ip', '14.17.75.71')
+            self.executor = ThreadPoolExecutor(self.thread_num)
+
+            self.queue = queue.Queue(self.thread_num)
+            for i in range(self.thread_num):
+                api = TdxHq_API(args, kwargs)
+                api.connect(self.ip)
+                self.queue.put(api)
+
+        def __getattr__(self, item):
+            api = self.queue.get()
+            func = api.__getattribute__(item)
+
+            def wrapper(*args, **kwargs):
+                res = self.executor.submit(func, *args, **kwargs)
+                self.queue.put(api)
+                return res
+
+            return wrapper
 
 
 class Engine:
@@ -103,8 +128,9 @@ class Engine:
         code = self.stock_list.index.tolist()
         if self.use_concurrent:
             res = {
-            self.executor.submit(self.apis[pos % self.thread_num].get_security_quotes, code[80 * pos:80 * (pos + 1)]) \
-            for pos in range(int(len(code) / 80) + 1)}
+                self.executor.submit(self.apis[pos % self.thread_num].get_security_quotes,
+                                     code[80 * pos:80 * (pos + 1)]) \
+                for pos in range(int(len(code) / 80) + 1)}
             return pd.concat([self.api.to_df(dic.result()) for dic in res])
         else:
             data = [self.api.to_df(self.api.get_security_quotes(
@@ -169,29 +195,87 @@ class Engine:
         df = pd.DataFrame()
         if freq in ['1d', 'day']:
             freq = 9
-            df = pd.concat(
-                [self.api.to_df(func(freq, exchange, code,
-                                     (
-                                         SECURITY_BARS_PATCH_NUM1 - i - 1) * SECURITY_BARS_PATCH_SIZE,
-                                     SECURITY_BARS_PATCH_SIZE)) for i in
-                 range(SECURITY_BARS_PATCH_NUM1)]).drop(
-                ['year', 'month', 'day', 'hour', 'minute'], axis=1)
-            df['datetime'] = pd.to_datetime(df.datetime)
         elif freq in ['1m', 'min']:
             freq = 8
-            df = pd.concat(
-                [self.api.to_df(
-                    func(freq, exchange, code,
-                         (SECURITY_BARS_PATCH_NUM2 - i - 1) * SECURITY_BARS_PATCH_SIZE,
-                         SECURITY_BARS_PATCH_SIZE)) for i in
-                    range(SECURITY_BARS_PATCH_NUM2)]).drop(
-                ['year', 'month', 'day', 'hour', 'minute'], axis=1)
-            df['datetime'] = pd.to_datetime(df.datetime)
         else:
-            print("1d and 1m frequency supported only")
-            exit(-1)
+            raise Exception("1d and 1m frequency supported only")
+
+        res = []
+        count = 0
+        while True:
+            data = func(freq, exchange, code, count, count + 800)
+            if not data:
+                break
+            res.extend(data)
+            count += 800
+
+        df = self.api.to_df(res).drop(
+            ['year', 'month', 'day', 'hour', 'minute'], axis=1)
+        df['datetime'] = pd.to_datetime(df.datetime)
         df['code'] = code
         return df.set_index('datetime')
+
+    def _get_transaction(self, code, date):
+        res = []
+        count = 0
+        while True:
+            data = self.api.get_history_transaction_data(get_stock_type(code), code, count, count + 2000,
+                                                         date)
+            if not data:
+                break
+            count += 2000
+            res = data + res
+
+        if len(res) == 0:
+            return pd.DataFrame()
+        df = self.api.to_df(res).assign(date=date)
+        df.index = pd.to_datetime(str(date) + " " + df["time"])
+        df['code'] = code
+        return df.drop("time", axis=1)
+
+    def time_and_price(self, code):
+        start = 0
+        res = []
+        exchange = self.get_security_type(code)
+        while True:
+            data = self.api.get_transaction_data(exchange, code, start, start + 2000)
+            if not data:
+                break
+            res = data + res
+            start += 2000
+
+        df = self.api.to_df(res)
+        df.time = pd.to_datetime(str(pd.to_datetime('today').date()) + " " + df['time'])
+        return df.set_index('time')
+
+    @classmethod
+    def minute_bars_from_transaction(cls, transaction, freq):
+        if transaction.empty:
+            return pd.DataFrame()
+        data = transaction['price'].resample(
+            freq, label='right', closed='left').ohlc()
+
+        data['volume'] = transaction[transaction['buyorsell'] != 2]['vol'].resample(
+            freq, label='right', closed='left').sum()
+        data['code'] = transaction['code'][0]
+
+        return data
+
+    def get_k_data(self, code, start, end, freq):
+        if isinstance(start, str) or isinstance(end, str):
+            start = pd.Timestamp(start)
+            end = pd.Timestamp(end)
+        sessions = pd.date_range(start, end)
+        trade_days = map(int, sessions.strftime("%Y%m%d"))
+
+        res = []
+        for trade_day in trade_days:
+            df = Engine.minute_bars_from_transaction(self._get_transaction(code, trade_day), freq)
+            if df.empty:
+                continue
+            res.append(df)
+
+        return pd.concat(res)
 
 
 class ExEngine:
