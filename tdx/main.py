@@ -4,7 +4,6 @@ from tdx.engine import Engine
 import datetime
 from tdx.utils.round import precise_round
 import pandas as pd
-from cn_stock_holidays.zipline.default_calendar import shsz_calendar
 import click
 
 
@@ -46,10 +45,6 @@ if __name__ == '__main__':
         start = '20171001'
         end = '20171010'
         code = '000001'
-
-        from cn_stock_holidays.zipline.default_calendar import shsz_calendar
-
-        print(shsz_calendar.sessions_in_range(pd.Timestamp('20171001'),pd.Timestamp('20171010')))
         time = datetime.datetime.now()
         # print(engine.get_k_data(code,start,end,"1min"))
         # print((datetime.datetime.now()  - time).total_seconds())

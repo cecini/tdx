@@ -5,7 +5,6 @@ from pytdx.util.best_ip import select_best_ip
 from pytdx.reader import CustomerBlockReader, GbbqReader
 from tdx.utils.paths import tdx_path
 import pandas as pd
-from cn_stock_holidays.zipline.default_calendar import shsz_calendar
 
 import pandas as pd
 from tdx.utils.memoize import lazyval
@@ -227,6 +226,8 @@ class Engine:
             count += 2000
             res = data + res
 
+        if len(res) == 0:
+            return pd.DataFrame()
         df = self.api.to_df(res).assign(date=date)
         df.index = pd.to_datetime(str(date) + " " + df["time"])
         df['code'] = code
@@ -249,6 +250,8 @@ class Engine:
 
     @classmethod
     def minute_bars_from_transaction(cls, transaction, freq):
+        if transaction.empty:
+            return pd.DataFrame()
         data = transaction['price'].resample(
             freq, label='right', closed='left').ohlc()
 
@@ -262,12 +265,15 @@ class Engine:
         if isinstance(start, str) or isinstance(end, str):
             start = pd.Timestamp(start)
             end = pd.Timestamp(end)
-        sessions = shsz_calendar.sessions_in_range(start, end)
+        sessions = pd.date_range(start, end)
         trade_days = map(int, sessions.strftime("%Y%m%d"))
 
         res = []
         for trade_day in trade_days:
-            res.append(Engine.minute_bars_from_transaction(self._get_transaction(code, trade_day), freq))
+            df = Engine.minute_bars_from_transaction(self._get_transaction(code, trade_day), freq)
+            if df.empty:
+                continue
+            res.append(df)
 
         return pd.concat(res)
 

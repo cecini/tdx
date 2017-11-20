@@ -20,8 +20,7 @@ setup(
     packages=find_packages(),
     install_requires=[
         'pytdx',
-        'toolz',
-        'cn-stock-holidays',
+        'toolz'
     ],
 
     package_data = {'tdx': ['data/*','data/blocknew/*']},
