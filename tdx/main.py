@@ -2,7 +2,7 @@
 
 from tdx.engine import Engine
 import datetime
-from tdx.utils.round import precise_round
+from tdx.utils.util import precise_round
 import pandas as pd
 import click
 
@@ -46,8 +46,8 @@ if __name__ == '__main__':
         end = '20171010'
         code = '000001'
         time = datetime.datetime.now()
-        # print(engine.get_k_data(code,start,end,"1min"))
-        # print((datetime.datetime.now()  - time).total_seconds())
+        print(engine.get_k_data(code,start,end,"1min"))
+        print((datetime.datetime.now()  - time).total_seconds())
 
 
         # with click.progressbar(timestamp2int(sessions),

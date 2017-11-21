@@ -11,7 +11,7 @@ except (IOError, ImportError):
 
 setup(
     name='tdx_wrapper',
-    version='0.46',
+    version='0.47',
     description='A Python wrapper of pytdx',
     long_description=long_description,
     author='Jie Wang',

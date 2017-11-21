@@ -3,7 +3,7 @@ from pytdx.exhq import TdxExHq_API
 from pytdx.params import TDXParams
 from pytdx.util.best_ip import select_best_ip
 from pytdx.reader import CustomerBlockReader, GbbqReader
-from tdx.utils.paths import tdx_path
+from tdx.utils.util import fillna
 import pandas as pd
 
 import pandas as pd
@@ -201,13 +201,13 @@ class Engine:
             raise Exception("1d and 1m frequency supported only")
 
         res = []
-        count = 0
+        start = 0
         while True:
-            data = func(freq, exchange, code, count, count + 800)
+            data = func(freq, exchange, code, start, 800)
             if not data:
                 break
-            res.extend(data)
-            count += 800
+            res = data + res
+            start += 800
 
         df = self.api.to_df(res).drop(
             ['year', 'month', 'day', 'hour', 'minute'], axis=1)
@@ -217,13 +217,13 @@ class Engine:
 
     def _get_transaction(self, code, date):
         res = []
-        count = 0
+        start = 0
         while True:
-            data = self.api.get_history_transaction_data(get_stock_type(code), code, count, count + 2000,
+            data = self.api.get_history_transaction_data(get_stock_type(code), code, start, 2000,
                                                          date)
             if not data:
                 break
-            count += 2000
+            start += 2000
             res = data + res
 
         if len(res) == 0:
@@ -238,7 +238,7 @@ class Engine:
         res = []
         exchange = self.get_security_type(code)
         while True:
-            data = self.api.get_transaction_data(exchange, code, start, start + 2000)
+            data = self.api.get_transaction_data(exchange, code, start, 2000)
             if not data:
                 break
             res = data + res
@@ -246,6 +246,7 @@ class Engine:
 
         df = self.api.to_df(res)
         df.time = pd.to_datetime(str(pd.to_datetime('today').date()) + " " + df['time'])
+        df.loc[0,'time'] = df.time[1]
         return df.set_index('time')
 
     @classmethod
@@ -255,11 +256,11 @@ class Engine:
         data = transaction['price'].resample(
             freq, label='right', closed='left').ohlc()
 
-        data['volume'] = transaction[transaction['buyorsell'] != 2]['vol'].resample(
+        data['volume'] = transaction['vol'].resample(
             freq, label='right', closed='left').sum()
         data['code'] = transaction['code'][0]
 
-        return data
+        return fillna(data)
 
     def get_k_data(self, code, start, end, freq):
         if isinstance(start, str) or isinstance(end, str):
@@ -268,6 +269,12 @@ class Engine:
         sessions = pd.date_range(start, end)
         trade_days = map(int, sessions.strftime("%Y%m%d"))
 
+        if freq == '1m':
+            freq = '1 min'
+
+        if freq == '1d':
+            freq = '24 H'
+
         res = []
         for trade_day in trade_days:
             df = Engine.minute_bars_from_transaction(self._get_transaction(code, trade_day), freq)
@@ -275,7 +282,9 @@ class Engine:
                 continue
             res.append(df)
 
-        return pd.concat(res)
+        if len(res) != 0:
+            return pd.concat(res)
+        return pd.DataFrame()
 
 
 class ExEngine:
