@@ -192,7 +192,9 @@ class Engine:
             exchange = get_stock_type(code)
             func = self.api.get_security_bars
 
-        df = pd.DataFrame()
+        start = start.tz_localize(None)
+        end = end.tz_localize(None)
+
         if freq in ['1d', 'day']:
             freq = 9
         elif freq in ['1m', 'min']:
@@ -209,16 +211,16 @@ class Engine:
             res = data + res
             pos += 800
 
-            if start and data[0]['datetime'] < start:
+            if start and pd.to_datetime(data[0]['datetime']) < start:
                 break
 
         df = self.api.to_df(res).drop(
             ['year', 'month', 'day', 'hour', 'minute'], axis=1)
+        df['datetime'] = pd.to_datetime(df.datetime)
         if start:
             df = df.loc[lambda df:start <= df.datetime]
         if end:
             df = df.loc[lambda df:df.datetime < end]
-        df['datetime'] = pd.to_datetime(df.datetime)
         df['code'] = code
         return df.set_index('datetime')
 
