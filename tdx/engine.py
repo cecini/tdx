@@ -184,7 +184,7 @@ class Engine:
         else:
             raise SecurityNotExists()
 
-    def get_security_bars(self, code, freq, index=False):
+    def get_security_bars(self, code, freq, start=None, end=None, index=False):
         if index:
             exchange = self.get_security_type(code)
             func = self.api.get_index_bars
@@ -201,16 +201,23 @@ class Engine:
             raise Exception("1d and 1m frequency supported only")
 
         res = []
-        start = 0
+        pos = 0
         while True:
-            data = func(freq, exchange, code, start, 800)
+            data = func(freq, exchange, code, pos, 800)
             if not data:
                 break
             res = data + res
-            start += 800
+            pos += 800
+
+            if start and data[0]['datetime'] < start:
+                break
 
         df = self.api.to_df(res).drop(
             ['year', 'month', 'day', 'hour', 'minute'], axis=1)
+        if start:
+            df = df.loc[lambda df:start <= df.datetime]
+        if end:
+            df = df.loc[lambda df:df.datetime < end]
         df['datetime'] = pd.to_datetime(df.datetime)
         df['code'] = code
         return df.set_index('datetime')
