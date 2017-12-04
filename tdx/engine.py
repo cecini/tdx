@@ -172,6 +172,14 @@ class Engine:
     def customer_block(self):
         return CustomerBlockReader().get_df(CUSTOMER_BLOCK_PATH)
 
+    def xdxr(self,code):
+        df = self.api.to_df(self.api.get_xdxr_info(self.get_security_type(code),code))
+        if df.empty:
+            return df
+        df['datetime'] = pd.to_datetime((df.year * 10000 + df.month * 100 + df.day).apply(lambda x:str(x)))
+        return df.drop(
+            ['year', 'month', 'day'], axis=1).set_index('datetime')
+
     @lazyval
     def gbbq(self):
         df = GbbqReader().get_df(GBBQ_PATH).query('category == 1')
@@ -192,8 +200,10 @@ class Engine:
             exchange = get_stock_type(code)
             func = self.api.get_security_bars
 
-        start = start.tz_localize(None)
-        end = end.tz_localize(None)
+        if start:
+            start = start.tz_localize(None)
+        if end:
+            end = end.tz_localize(None)
 
         if freq in ['1d', 'day']:
             freq = 9
