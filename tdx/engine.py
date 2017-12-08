@@ -169,6 +169,10 @@ class Engine:
         return self.api.to_df(self.api.get_and_parse_block_info(TDXParams.BLOCK_FG))
 
     @lazyval
+    def block(self):
+        return self.api.to_df(self.api.get_and_parse_block_info(TDXParams.BLOCK_DEFAULT))
+
+    @lazyval
     def customer_block(self):
         return CustomerBlockReader().get_df(CUSTOMER_BLOCK_PATH)
 
