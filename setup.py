@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 from setuptools import setup, find_packages
+import versioneer
 
 try:
     import pypandoc
@@ -11,7 +12,8 @@ except (IOError, ImportError):
 
 setup(
     name='tdx_wrapper',
-    version='0.51',
+    version=versioneer.get_version(),
+    cmdclass=versioneer.get_cmdclass(),
     description='A Python wrapper of pytdx',
     long_description=long_description,
     author='Jie Wang',

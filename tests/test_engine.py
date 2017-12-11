@@ -33,8 +33,6 @@ def transactions():
     df = eg.time_and_price('000001')
     ohlcv = df.price.resample('1 Min', label='right', closed='left').ohlc()
     ohlcv['volume'] = df.vol.resample('1 Min', label='right', closed='left').sum()
-    print(ohlcv)
-    print(m1)
 
 
 transactions()

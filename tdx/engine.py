@@ -5,6 +5,7 @@ from pytdx.util.best_ip import select_best_ip
 from pytdx.reader import CustomerBlockReader, GbbqReader
 from tdx.utils.util import fillna
 import pandas as pd
+from functools import wraps
 
 import pandas as pd
 from tdx.utils.memoize import lazyval
@@ -69,6 +70,28 @@ if not PY2:
                 return res
 
             return wrapper
+
+
+def retry(times=3):
+    def wrapper(func):
+        print("decorating")
+        @wraps(func)
+        def fun(*args, **kwargs):
+            cls = args[0]
+            count = 0
+            while count < times:
+                try:
+                    print("count {}".format(count))
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    cls.connect()
+                    count = count + 1
+
+            raise Exception("connection failed after retried 3 times, please check your network")
+
+        return fun
+
+    return wrapper
 
 
 class Engine:
@@ -176,11 +199,11 @@ class Engine:
     def customer_block(self):
         return CustomerBlockReader().get_df(CUSTOMER_BLOCK_PATH)
 
-    def xdxr(self,code):
-        df = self.api.to_df(self.api.get_xdxr_info(self.get_security_type(code),code))
+    def xdxr(self, code):
+        df = self.api.to_df(self.api.get_xdxr_info(self.get_security_type(code), code))
         if df.empty:
             return df
-        df['datetime'] = pd.to_datetime((df.year * 10000 + df.month * 100 + df.day).apply(lambda x:str(x)))
+        df['datetime'] = pd.to_datetime((df.year * 10000 + df.month * 100 + df.day).apply(lambda x: str(x)))
         return df.drop(
             ['year', 'month', 'day'], axis=1).set_index('datetime')
 
@@ -196,6 +219,7 @@ class Engine:
         else:
             raise SecurityNotExists()
 
+    @retry(3)
     def get_security_bars(self, code, freq, start=None, end=None, index=False):
         if index:
             exchange = self.get_security_type(code)
@@ -228,13 +252,13 @@ class Engine:
             if start and pd.to_datetime(data[0]['datetime']) < start:
                 break
 
-        df = self.api.to_df(res).drop(
-            ['year', 'month', 'day', 'hour', 'minute'], axis=1)
+            df = self.api.to_df(res).drop(
+                ['year', 'month', 'day', 'hour', 'minute'], axis=1)
         df['datetime'] = pd.to_datetime(df.datetime)
         if start:
-            df = df.loc[lambda df:start <= df.datetime]
+            df = df.loc[lambda df: start <= df.datetime]
         if end:
-            df = df.loc[lambda df:df.datetime < end]
+            df = df.loc[lambda df: df.datetime < end]
         df['code'] = code
         return df.set_index('datetime')
 
@@ -269,7 +293,7 @@ class Engine:
 
         df = self.api.to_df(res)
         df.time = pd.to_datetime(str(pd.to_datetime('today').date()) + " " + df['time'])
-        df.loc[0,'time'] = df.time[1]
+        df.loc[0, 'time'] = df.time[1]
         return df.set_index('time')
 
     @classmethod
