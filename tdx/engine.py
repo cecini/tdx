@@ -7,7 +7,6 @@ from tdx.utils.util import fillna
 import pandas as pd
 from functools import wraps
 
-import pandas as pd
 from tdx.utils.memoize import lazyval
 from six import PY2
 
@@ -74,14 +73,12 @@ if not PY2:
 
 def retry(times=3):
     def wrapper(func):
-        print("decorating")
         @wraps(func)
         def fun(*args, **kwargs):
             cls = args[0]
             count = 0
             while count < times:
                 try:
-                    print("count {}".format(count))
                     return func(*args, **kwargs)
                 except Exception as e:
                     cls.connect()
