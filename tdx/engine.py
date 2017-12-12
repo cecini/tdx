@@ -249,7 +249,7 @@ class Engine:
             if start and pd.to_datetime(data[0]['datetime']) < start:
                 break
 
-            df = self.api.to_df(res).drop(
+        df = self.api.to_df(res).drop(
                 ['year', 'month', 'day', 'hour', 'minute'], axis=1)
         df['datetime'] = pd.to_datetime(df.datetime)
         if start:
