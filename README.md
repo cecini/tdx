@@ -20,4 +20,4 @@ Pytdx 是一款纯Python语言开发的类似TradeX的行情数据接口的实�
 
 ### 相关：
 
-`tdx`项目被用于`cn_zipline` https://github.com/JaysonAlbert/cn_zipline 的数据源。 `cn_zipline`是一个包含了a股bundles的`zipline`扩展，可以用zipline对a股进行回测。
+`tdx`项目被用于`cn-zipline-live` https://github.com/JaysonAlbert/zipline 的数据源。 `cn-zipline-live`是一个包含了a股bundles的`zipline`扩展，可以用zipline对a股进行回测以及实盘。
