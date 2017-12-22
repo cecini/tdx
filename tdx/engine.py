@@ -93,12 +93,13 @@ def retry(times=3):
 
 class Engine:
     def __init__(self, *args, **kwargs):
-        if kwargs.pop('best_ip', False):
-            self.ip = self.best_ip
+        if 'ip' in kwargs:
+            self.ip = kwargs.pop('ip')
         else:
-            self.ip = '14.17.75.71'
-
-        self.ip = kwargs.pop('ip', '14.17.75.71')
+            if kwargs.pop('best_ip', False):
+                self.ip = self.best_ip
+            else:
+                self.ip = '14.17.75.71'
 
         self.thread_num = kwargs.pop('thread_num', 1)
 
