@@ -251,14 +251,28 @@ class Engine:
                 break
 
         df = self.api.to_df(res).drop(
-                ['year', 'month', 'day', 'hour', 'minute'], axis=1)
+            ['year', 'month', 'day', 'hour', 'minute'], axis=1)
         df['datetime'] = pd.to_datetime(df.datetime)
+        close = [df.close.values[-1]]
         if start:
             df = df.loc[lambda df: start <= df.datetime]
         if end:
             df = df.loc[lambda df: df.datetime < end]
         df['code'] = code
-        return df.set_index('datetime')
+        if df.empty:
+            return pd.DataFrame({
+                'amount': [0],
+                'close': close,
+                'open': close,
+                'high': close,
+                'low': close,
+                'vol': [0],
+                'code': code
+            },
+                index=[start]
+            )
+        else:
+            return df.set_index('datetime')
 
     def _get_transaction(self, code, date):
         res = []
