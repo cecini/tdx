@@ -1,3 +1,4 @@
+# -*- coding:utf-8 –*-
 from pytdx.hq import TdxHq_API
 from pytdx.exhq import TdxExHq_API
 from pytdx.params import TDXParams
@@ -14,6 +15,12 @@ if not PY2:
     from concurrent.futures import ThreadPoolExecutor
 
 from .config import *
+
+from logbook import Logger, StreamHandler
+import sys
+StreamHandler(sys.stdout).push_application()
+
+logger = Logger('engine')
 
 
 def stock_filter(code):
@@ -249,10 +256,23 @@ class Engine:
 
             if start and pd.to_datetime(data[0]['datetime']) < start:
                 break
-
-        df = self.api.to_df(res).drop(
-            ['year', 'month', 'day', 'hour', 'minute'], axis=1)
-        df['datetime'] = pd.to_datetime(df.datetime)
+        try:
+            df = self.api.to_df(res).drop(
+                ['year', 'month', 'day', 'hour', 'minute'], axis=1)
+            df['datetime'] = pd.to_datetime(df.datetime)
+        except ValueError:  # 未上市股票，无数据
+            logger.warning("no k line data for {}".format(code))
+            return pd.DataFrame({
+                'amount': [0],
+                'close': [0],
+                'open': [0],
+                'high': [0],
+                'low': [0],
+                'vol': [0],
+                'code': code
+            },
+                index=[start]
+            )
         close = [df.close.values[-1]]
         if start:
             df = df.loc[lambda df: start <= df.datetime]
