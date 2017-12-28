@@ -280,7 +280,7 @@ class Engine:
         if start:
             df = df.loc[lambda df: start <= df.index]
         if end:
-            df = df.loc[lambda df: df.index <= end]
+            df = df.loc[lambda df: df.index.normalize() <= end]
 
         if df.empty:
             return pd.DataFrame({
