@@ -260,6 +260,9 @@ class Engine:
             df = self.api.to_df(res).drop(
                 ['year', 'month', 'day', 'hour', 'minute'], axis=1)
             df['datetime'] = pd.to_datetime(df.datetime)
+            df.set_index('datetime',inplace=True)
+            if freq == 9:
+                df.index = df.index.normalize()
         except ValueError:  # 未上市股票，无数据
             logger.warning("no k line data for {}".format(code))
             return pd.DataFrame({
@@ -275,10 +278,10 @@ class Engine:
             )
         close = [df.close.values[-1]]
         if start:
-            df = df.loc[lambda df: start <= df.datetime]
+            df = df.loc[lambda df: start <= df.index]
         if end:
-            df = df.loc[lambda df: df.datetime <= end]
-        df['code'] = code
+            df = df.loc[lambda df: df.index <= end]
+
         if df.empty:
             return pd.DataFrame({
                 'amount': [0],
@@ -292,7 +295,8 @@ class Engine:
                 index=[start]
             )
         else:
-            return df.set_index('datetime')
+            df['code'] = code
+            return df
 
     def _get_transaction(self, code, date):
         res = []
