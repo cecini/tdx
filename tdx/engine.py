@@ -277,7 +277,7 @@ class Engine:
         if start:
             df = df.loc[lambda df: start <= df.datetime]
         if end:
-            df = df.loc[lambda df: df.datetime < end]
+            df = df.loc[lambda df: df.datetime <= end]
         df['code'] = code
         if df.empty:
             return pd.DataFrame({
