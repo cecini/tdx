@@ -1,9 +1,11 @@
 # -*- coding:utf-8 –*-
 
-from tdx.engine import Engine
+from tdx.engine import Engine, AsyncEngine
 import datetime
 from tdx.utils.util import precise_round
 import pandas as pd
+import threading
+import timeit
 import click
 
 
@@ -38,8 +40,19 @@ def quotes():
     process_quotes(quote)
 
 
-if __name__ == '__main__':
+def main():
     engine = Engine(best_ip=True)
     with engine.connect():
+        engine.get_k_data('000001', '20161201', '20171231', '1m')
 
-        print(engine.get_security_bars('002920','1d',pd.to_datetime('20170701')))
+
+def test_transaction():
+    engine = AsyncEngine(best_ip=True)
+    with engine.connect():
+        engine.get_k_data('000001', '20161201', '20171231', '1m')
+
+
+if __name__ == '__main__':
+    engine = Engine(best_ip=True)
+    print(timeit.timeit(test_transaction, number=1))
+    # print(timeit.timeit(main, number=1))

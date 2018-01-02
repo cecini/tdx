@@ -1,5 +1,7 @@
 # -*- coding:utf-8 –*-
+import threading
 from pytdx.hq import TdxHq_API
+from pytdx.async.hq import ATdxHq_API
 from pytdx.exhq import TdxExHq_API
 from pytdx.params import TDXParams
 from pytdx.util.best_ip import select_best_ip
@@ -7,6 +9,7 @@ from pytdx.reader import CustomerBlockReader, GbbqReader
 from tdx.utils.util import fillna
 import pandas as pd
 from functools import wraps
+import asyncio
 
 from tdx.utils.memoize import lazyval
 from six import PY2
@@ -14,13 +17,17 @@ from six import PY2
 if not PY2:
     from concurrent.futures import ThreadPoolExecutor
 
-from .config import *
+from tdx.config import *
 
-from logbook import Logger, StreamHandler
+# from logbook import Logger
 import sys
-StreamHandler(sys.stdout).push_application()
+# StreamHandler(sys.stdout).push_application()
+import threading
 
-logger = Logger('engine')
+import logging as logger
+
+
+# logger = Logger('engine')
 
 
 def stock_filter(code):
@@ -260,7 +267,7 @@ class Engine:
             df = self.api.to_df(res).drop(
                 ['year', 'month', 'day', 'hour', 'minute'], axis=1)
             df['datetime'] = pd.to_datetime(df.datetime)
-            df.set_index('datetime',inplace=True)
+            df.set_index('datetime', inplace=True)
             if freq == 9:
                 df.index = df.index.normalize()
         except ValueError:  # 未上市股票，无数据
@@ -364,6 +371,53 @@ class Engine:
             if df.empty:
                 continue
             res.append(df)
+
+        if len(res) != 0:
+            return pd.concat(res)
+        return pd.DataFrame()
+
+
+class AsyncEngine(Engine):
+    def __init__(self, *args, **kwargs):
+        super(AsyncEngine, self).__init__(*args, **kwargs)
+
+        self.aapi = ATdxHq_API(ip=self.ip)
+
+    async def _get_transaction(self, code, date):
+        res = []
+        start = 0
+        while True:
+            data = await self.aapi.get_history_transaction_data(get_stock_type(code), code, start, 2000,
+                                                                date)
+            if not data:
+                break
+            start += 2000
+            res = data + res
+
+        if len(res) == 0:
+            return pd.DataFrame()
+        df = self.api.to_df(res).assign(date=date)
+        df.index = pd.to_datetime(str(date) + " " + df["time"])
+        df['code'] = code
+        return df.drop("time", axis=1)
+
+    def get_k_data(self, code, start, end, freq):
+        if isinstance(start, str) or isinstance(end, str):
+            start = pd.Timestamp(start)
+            end = pd.Timestamp(end)
+        sessions = pd.date_range(start, end)
+        trade_days = map(int, sessions.strftime("%Y%m%d"))
+
+        if freq == '1m':
+            freq = '1 min'
+
+        if freq == '1d':
+            freq = '24 H'
+
+        res = [self._get_transaction(code, trade_day) for trade_day in
+               trade_days]
+        completed, pending = self.aapi.run_until_complete(asyncio.wait(res))
+        res = [Engine.minute_bars_from_transaction(t.result(),freq='1m') for t in completed]
 
         if len(res) != 0:
             return pd.concat(res)
