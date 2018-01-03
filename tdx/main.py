@@ -55,4 +55,4 @@ def test_transaction():
 if __name__ == '__main__':
     engine = Engine(best_ip=True)
     print(timeit.timeit(test_transaction, number=1))
-    # print(timeit.timeit(main, number=1))
+    print(timeit.timeit(main, number=1))
