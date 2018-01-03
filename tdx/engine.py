@@ -1,3 +1,4 @@
+# -*- coding:utf-8 –*-
 from pytdx.hq import TdxHq_API
 from pytdx.exhq import TdxExHq_API
 from pytdx.params import TDXParams
@@ -6,7 +7,7 @@ from pytdx.reader import CustomerBlockReader, GbbqReader
 from tdx.utils.util import fillna
 import pandas as pd
 from functools import wraps
-
+import gevent
 from tdx.utils.memoize import lazyval
 from six import PY2
 
@@ -14,6 +15,12 @@ if not PY2:
     from concurrent.futures import ThreadPoolExecutor
 
 from .config import *
+
+from logbook import Logger, StreamHandler
+import sys
+StreamHandler(sys.stdout).push_application()
+
+logger = Logger('engine')
 
 
 def stock_filter(code):
@@ -249,16 +256,47 @@ class Engine:
 
             if start and pd.to_datetime(data[0]['datetime']) < start:
                 break
-
-        df = self.api.to_df(res).drop(
+        try:
+            df = self.api.to_df(res).drop(
                 ['year', 'month', 'day', 'hour', 'minute'], axis=1)
-        df['datetime'] = pd.to_datetime(df.datetime)
+            df['datetime'] = pd.to_datetime(df.datetime)
+            df.set_index('datetime',inplace=True)
+            if freq == 9:
+                df.index = df.index.normalize()
+        except ValueError:  # 未上市股票，无数据
+            logger.warning("no k line data for {}".format(code))
+            return pd.DataFrame({
+                'amount': [0],
+                'close': [0],
+                'open': [0],
+                'high': [0],
+                'low': [0],
+                'vol': [0],
+                'code': code
+            },
+                index=[start]
+            )
+        close = [df.close.values[-1]]
         if start:
-            df = df.loc[lambda df: start <= df.datetime]
+            df = df.loc[lambda df: start <= df.index]
         if end:
-            df = df.loc[lambda df: df.datetime < end]
-        df['code'] = code
-        return df.set_index('datetime')
+            df = df.loc[lambda df: df.index.normalize() <= end]
+
+        if df.empty:
+            return pd.DataFrame({
+                'amount': [0],
+                'close': close,
+                'open': close,
+                'high': close,
+                'low': close,
+                'vol': [0],
+                'code': code
+            },
+                index=[start]
+            )
+        else:
+            df['code'] = code
+            return df
 
     def _get_transaction(self, code, date):
         res = []
@@ -321,11 +359,23 @@ class Engine:
             freq = '24 H'
 
         res = []
+        concurrent_count = 50
+        jobs = []
         for trade_day in trade_days:
-            df = Engine.minute_bars_from_transaction(self._get_transaction(code, trade_day), freq)
-            if df.empty:
-                continue
-            res.append(df)
+            #df = Engine.minute_bars_from_transaction(self._get_transaction(code, trade_day), freq)
+            reqevent = gevent.spawn(Engine.minute_bars_from_transaction, self._get_transaction(code, trade_day), freq)
+            jobs.append(reqevent)
+            if len(jobs) >= concurrent_count:
+                gevent.joinall(jobs, timeout=30)
+                for j in jobs:
+                    if j.value is not None and not j.value.empty:
+                        res.append(j.value)
+                jobs.clear()
+        gevent.joinall(jobs, timeout=30)
+        for j in jobs:
+            if j.value is not None and not j.value.empty:
+                res.append(j.value)
+        jobs.clear()
 
         if len(res) != 0:
             return pd.concat(res)
