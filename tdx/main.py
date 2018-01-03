@@ -1,9 +1,11 @@
 # -*- coding:utf-8 –*-
 
-from tdx.engine import Engine
+from tdx.engine import Engine, AsyncEngine
 import datetime
 from tdx.utils.util import precise_round
 import pandas as pd
+import threading
+import timeit
 import click
 
 
@@ -19,7 +21,7 @@ def process_quotes(quotes):
     print(grouped.sort_values('up_limit', ascending=False))
 
 
-def test_minute_time_data():
+def minute_time_data():
     stock_list = engine.stock_list.index.tolist()
 
     now = datetime.datetime.now()
@@ -31,30 +33,26 @@ def test_minute_time_data():
     print((datetime.datetime.now() - now).total_seconds())
 
 
-def test_quotes():
+def quotes():
     start_dt = datetime.datetime.now()
     quote = engine.stock_quotes()
     print(datetime.datetime.now() - start_dt).total_seconds()
     process_quotes(quote)
 
 
-if __name__ == '__main__':
-    engine = Engine(auto_retry=True, multithread=True, thread_num=8)
+def main():
+    engine = Engine(best_ip=True)
     with engine.connect():
-
-        start = '20171001'
-        end = '20171010'
-        code = '000001'
-        time = datetime.datetime.now()
-        print(engine.get_k_data(code,start,end,"1min"))
-        print((datetime.datetime.now()  - time).total_seconds())
+        engine.get_k_data('000001', '20161201', '20171231', '1m')
 
 
-        # with click.progressbar(timestamp2int(sessions),
-        #                        item_show_func=lambda e: e if e is None else str(e[0])
-        #                        ) as date:
-        #     print(engine.get_transaction('000001', date))
+def test_transaction():
+    engine = AsyncEngine(best_ip=True)
+    with engine.connect():
+        engine.get_k_data('000001', '20161201', '20171231', '1m')
 
-        # test_quotes()
-        # print(engine.get_security_bars('513500','1d'))
 
+if __name__ == '__main__':
+    engine = Engine(best_ip=True)
+    print(timeit.timeit(test_transaction, number=1))
+    # print(timeit.timeit(main, number=1))
