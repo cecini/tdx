@@ -10,7 +10,7 @@ from tdx.utils.util import fillna
 import pandas as pd
 from functools import wraps
 import asyncio
-
+import gevent
 from tdx.utils.memoize import lazyval
 from six import PY2
 
@@ -106,6 +106,7 @@ def retry(times=3):
 
 
 class Engine:
+    conncurrent_thread_count = 50
     def __init__(self, *args, **kwargs):
         if 'ip' in kwargs:
             self.ip = kwargs.pop('ip')
@@ -114,7 +115,8 @@ class Engine:
                 self.ip = self.best_ip
             else:
                 self.ip = '14.17.75.71'
-
+        if 'conncurrent_thread_count' in kwargs:
+            self.conncurrent_thread_count = kwargs.pop('conncurrent_thread_count', 50)
         self.thread_num = kwargs.pop('thread_num', 1)
 
         if not PY2 and self.thread_num != 1:
@@ -366,7 +368,7 @@ class Engine:
             freq = '24 H'
 
         res = []
-        concurrent_count = 50
+        concurrent_count = self.conncurrent_thread_count
         jobs = []
         for trade_day in trade_days:
             #df = Engine.minute_bars_from_transaction(self._get_transaction(code, trade_day), freq)
