@@ -1,9 +1,28 @@
-from tdx.engine import Engine
+from tdx.engine import Engine, AsyncEngine
 
 
 def test_engine():
-    yield engine_func, True, 1
-    yield engine_func, False, 4
+    yield engine_func, True, 4
+
+
+def test_async_engine():
+    engine = AsyncEngine(best_ip=True)
+
+    with engine.connect():
+        assert engine.best_ip is not None
+        assert engine.gbbq is not None
+        assert engine.security_list is not None
+        assert engine.stock_quotes() is not None
+        assert engine.customer_block is not None
+        assert engine.quotes('000001') is not None
+        assert engine.get_security_bars('000001', '1m') is not None
+        assert engine.get_security_bars('000001', '1d') is not None
+        assert engine.get_security_bars('000300', '1m', index=True) is not None
+        assert engine.get_security_bars('000300', '1d', index=True) is not None
+        assert engine.concept is not None
+        assert engine.fengge is not None
+        assert engine.index is not None
+        assert engine.stock_list is not None
 
 
 def engine_func(best_ip, thread_num):
