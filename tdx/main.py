@@ -41,15 +41,17 @@ def quotes():
 
 
 def main():
-    engine = Engine(best_ip=True)
-    with engine.connect():
-        engine.get_k_data('000001', '20161201', '20171231', '1m')
+    eg = Engine(best_ip=True)
+    with eg.connect():
+        eg.get_k_data('000001', '20170601', '20171231', '1m')
 
 
 def test_transaction():
     engine = AsyncEngine(best_ip=True)
     with engine.connect():
-        engine.get_k_data('000001', '20161201', '20171231', '1m')
+        df = engine.get_k_data('000001', '20170601', '20171231', '1m')
+
+        df = engine.get_security_bars(['000001', '000521'], '1d', start=pd.to_datetime('20180102'))
 
 
 if __name__ == '__main__':
