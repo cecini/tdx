@@ -292,17 +292,18 @@ class Engine:
             df = df.loc[lambda df: df.index.normalize() <= end]
 
         if df.empty:
-            return pd.DataFrame({
-                'amount': [0],
-                'close': close,
-                'open': close,
-                'high': close,
-                'low': close,
-                'vol': [0],
-                'code': code
-            },
-                index=[start]
-            )
+            # return pd.DataFrame({
+            #     'amount': [0],
+            #     'close': close,
+            #     'open': close,
+            #     'high': close,
+            #     'low': close,
+            #     'vol': [0],
+            #     'code': code
+            # },
+            #     index=[start]
+            # )
+            return df
         else:
             df['code'] = code
             return df
