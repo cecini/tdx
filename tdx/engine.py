@@ -306,6 +306,8 @@ class Engine:
             # )
             return df
         else:
+            if int(df['vol'][-1]) <= 0 and end == df.index[-1] and len(df) == 1:  # 成交量为0，当天返回的是没开盘的数据
+                return pd.DataFrame()
             df['code'] = code
             return df
 
