@@ -274,17 +274,18 @@ class Engine:
                 df.index = df.index.normalize()
         except ValueError:  # 未上市股票，无数据
             logger.warning("no k line data for {}".format(code))
-            return pd.DataFrame({
-                'amount': [0],
-                'close': [0],
-                'open': [0],
-                'high': [0],
-                'low': [0],
-                'vol': [0],
-                'code': code
-            },
-                index=[start]
-            )
+            # return pd.DataFrame({
+            #     'amount': [0],
+            #     'close': [0],
+            #     'open': [0],
+            #     'high': [0],
+            #     'low': [0],
+            #     'vol': [0],
+            #     'code': code
+            # },
+            #     index=[start]
+            # )
+            return df
         close = [df.close.values[-1]]
         if start:
             df = df.loc[lambda df: start <= df.index]
@@ -305,6 +306,8 @@ class Engine:
             # )
             return df
         else:
+            if int(df['vol'][-1]) <= 0 and end == df.index[-1] and len(df) == 1:  # 成交量为0，当天返回的是没开盘的数据
+                return pd.DataFrame()
             df['code'] = code
             return df
 
