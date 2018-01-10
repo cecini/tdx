@@ -285,7 +285,7 @@ class Engine:
             # },
             #     index=[start]
             # )
-            return df
+            return pd.DataFrame()
         close = [df.close.values[-1]]
         if start:
             df = df.loc[lambda df: start <= df.index]
