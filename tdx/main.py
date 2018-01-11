@@ -1,6 +1,6 @@
 # -*- coding:utf-8 –*-
 
-from tdx.engine import Engine, AsyncEngine
+from tdx.engine import Engine
 import datetime
 from tdx.utils.util import precise_round
 import pandas as pd
@@ -41,18 +41,24 @@ def quotes():
 
 
 def main():
-    engine = Engine(best_ip=True)
+    engine = Engine(best_ip=True, thread_num=1)
     with engine.connect():
         engine.get_k_data('000001', '20161201', '20171231', '1m')
 
 
 def test_transaction():
-    engine = AsyncEngine(best_ip=True)
+    engine = Engine(best_ip=True, thread_num=1)
     with engine.connect():
         engine.get_k_data('000001', '20161201', '20171231', '1m')
 
 
 if __name__ == '__main__':
-    engine = Engine(best_ip=True)
+    engine = Engine(best_ip=True, thread_num=1)
+    with engine.connect():
+        print(engine.api.get_security_count(0))
+        print(engine.api.get_security_count(1))
+        lists = engine.stock_list
+        print(engine.get_security_bars('300737', '1d', pd.to_datetime('20161201'), pd.to_datetime('20171231')))
+        print(engine.get_k_data('300737', '20161201', '20171231', '1d'))
     print(timeit.timeit(test_transaction, number=1))
     print(timeit.timeit(main, number=1))
