@@ -260,6 +260,7 @@ class Engine:
             df = self.api.to_df(res).drop(
                 ['year', 'month', 'day', 'hour', 'minute'], axis=1)
             df['datetime'] = pd.to_datetime(df.datetime)
+            df.drop_duplicates(subset=["datetime"], inplace=True, keep="first")
             df.set_index('datetime', inplace=True)
             if freq == 9:
                 df.index = df.index.normalize()
@@ -277,6 +278,8 @@ class Engine:
             #     index=[start]
             # )
             return pd.DataFrame()
+        except Exception as ex:
+            raise ex
         close = [df.close.values[-1]]
         if start:
             df = df.loc[lambda df: start <= df.index]
@@ -316,6 +319,7 @@ class Engine:
         if len(res) == 0:
             return pd.DataFrame()
         df = self.api.to_df(res).assign(date=date)
+
         df.index = pd.to_datetime(str(date) + " " + df["time"])
         df['code'] = code
         return df.drop("time", axis=1)
