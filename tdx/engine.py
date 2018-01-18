@@ -350,6 +350,8 @@ class Engine:
             end = pd.Timestamp(end)
         if check:
             daily_bars = self.get_security_bars(code, '1d', start, end)
+            if daily_bars is None or daily_bars.empty:
+                return daily_bars
             sessions = daily_bars.index
         else:
             sessions = pd.bdate_range(start, end, weekmask='Mon Tue Wed Thu Fri')
