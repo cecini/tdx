@@ -10,7 +10,7 @@ from functools import wraps
 import gevent
 from tdx.utils.memoize import lazyval
 from six import PY2
-
+import time
 if not PY2:
     from concurrent.futures import ThreadPoolExecutor
 
@@ -86,6 +86,8 @@ def retry(times=3):
                 try:
                     return func(*args, **kwargs)
                 except Exception as e:
+                    logger.error("error", e)
+                    time.sleep(1)
                     cls.connect()
                     count = count + 1
 
@@ -330,11 +332,15 @@ class Engine:
         res = []
         exchange = self.get_security_type(code)
         while True:
-            data = self.api.get_transaction_data(exchange, code, start, 2000)
-            if not data:
+            try:
+                data = self.api.get_transaction_data(exchange, code, start, 2000)
+                if not data:
+                    break
+                res = data + res
+                start += 2000
+            except Exception as ex:
+                logger.error("data error", ex)
                 break
-            res = data + res
-            start += 2000
 
         df = self.api.to_df(res)
         df.time = pd.to_datetime(str(pd.to_datetime('today').date()) + " " + df['time'])
@@ -362,12 +368,42 @@ class Engine:
         afternoon = resample(transaction[~mask])
         if morning.empty and afternoon.empty:
             return pd.DataFrame()
-        morning.index.values[-1] = afternoon.index[0] - pd.Timedelta('1 min')
+        if not afternoon.empty:
+            morning.index.values[-1] = afternoon.index[0] - pd.Timedelta('1 min')
         df = pd.concat([morning, afternoon])
 
         return fillna(df)
 
-    def _get_k_data(self,code, freq, sessions):
+    def check_df_daily(self, freq, code, df, daily_bars):
+        if freq == '1 min' or freq == '1m':
+            need_check = pd.DataFrame({
+                'open': df['open'].resample('1D').first(),
+                'high': df['high'].resample('1D').max(),
+                'low': df['low'].resample('1D').min(),
+                'close': df['close'].resample('1D').last(),
+                'volume': df['volume'].resample('1D').sum()
+            }).dropna()
+        else:
+            need_check = df
+
+        diff = daily_bars[['open', 'close']] == need_check[['open', 'close']]
+        res = (diff.open) & (diff.close)
+        sessions = res[res == False].index
+        if sessions.shape[0] != 0:
+            logger.info("fixing data for {}-{} with sessions: {}".format(code, freq, sessions))
+            raise ValueError("minute bar doesn't match day on {} at {}".format(code, daily_bars.index[0]))
+        return True
+
+    @retry(3)
+    def minute_bars_from_transaction_with_check(self, code, trade_day, freq, daily_bars):
+        df = Engine.minute_bars_from_transaction(self._get_transaction(code, trade_day), freq)
+        if daily_bars is not None:
+            df2 = daily_bars[daily_bars.index == pd.to_datetime(df.index[0].date())]
+            self.check_df_daily(freq, code, df, df2)
+        return df
+
+
+    def _get_k_data(self,code, freq, sessions, daily_bars=None):
         trade_days = map(int, sessions.strftime("%Y%m%d"))
         if freq == '1m':
             freq = '1 min'
@@ -380,10 +416,11 @@ class Engine:
         jobs = []
         for trade_day in trade_days:
             # df = Engine.minute_bars_from_transaction(self._get_transaction(code, trade_day), freq)
-            reqevent = gevent.spawn(Engine.minute_bars_from_transaction, self._get_transaction(code, trade_day), freq)
+
+            reqevent = gevent.spawn(self.minute_bars_from_transaction_with_check, code, trade_day, freq, daily_bars)
             jobs.append(reqevent)
             if len(jobs) >= concurrent_count:
-                gevent.joinall(jobs, timeout=30)
+                gevent.joinall(jobs, timeout=120)
                 for j in jobs:
                     if j.value is not None and not j.value.empty:
                         res.append(j.value)
@@ -401,6 +438,7 @@ class Engine:
         if isinstance(start, str) or isinstance(end, str):
             start = pd.Timestamp(start)
             end = pd.Timestamp(end)
+        daily_bars = None
         if check:
             daily_bars = self.get_security_bars(code, '1d', start, end)
             if daily_bars is None or daily_bars.empty:
@@ -408,34 +446,7 @@ class Engine:
             sessions = daily_bars.index
         else:
             sessions = pd.bdate_range(start, end, weekmask='Mon Tue Wed Thu Fri')
-        df = self._get_k_data(code,freq,sessions)
-
-        def check_df(freq, df, daily_bars):
-            if freq == '1m':
-                need_check = pd.DataFrame({
-                    'open': df['open'].resample('1D').first(),
-                    'high': df['high'].resample('1D').max(),
-                    'low': df['low'].resample('1D').min(),
-                    'close': df['close'].resample('1D').last(),
-                    'volume': df['volume'].resample('1D').sum()
-                }).dropna()
-            else:
-                need_check = df
-
-            diff = daily_bars[['open', 'close']] == need_check[['open', 'close']]
-            res = (diff.open) & (diff.close)
-            sessions = res[res == False].index
-            return sessions
-
-        if not df.empty:
-            if check:
-                sessions = check_df(freq, df, daily_bars)
-                if sessions.shape[0] != 0:
-                    logger.info("fixing data for {}-{} with sessions: {}".format(code,freq,sessions))
-                    fix = self._get_k_data(code,freq,sessions)
-                    df.loc[fix.index] = fix
-            return df
-        return df
+        return self._get_k_data(code, freq, sessions, daily_bars)
 
 
 class ExEngine:
