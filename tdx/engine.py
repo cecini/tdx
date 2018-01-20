@@ -1,5 +1,6 @@
 # -*- coding:utf-8 –*-
 from pytdx.hq import TdxHq_API
+from pytdx.async.hq import ATdxHq_API
 from pytdx.exhq import TdxExHq_API
 from pytdx.params import TDXParams
 from pytdx.util.best_ip import select_best_ip
@@ -11,8 +12,7 @@ import gevent
 from tdx.utils.memoize import lazyval
 from six import PY2
 
-if not PY2:
-    from concurrent.futures import ThreadPoolExecutor
+import asyncio
 
 from tdx.config import *
 
@@ -344,6 +344,27 @@ class Engine:
             return pd.concat(res)
         return pd.DataFrame()
 
+    def _check_df(self,freq, df, daily_bars):
+        if freq == '1m':
+            need_check = pd.DataFrame({
+                'open': df['open'].resample('1D').first(),
+                'high': df['high'].resample('1D').max(),
+                'low': df['low'].resample('1D').min(),
+                'close': df['close'].resample('1D').last(),
+                'volume': df['volume'].resample('1D').sum()
+            }).dropna()
+        else:
+            need_check = df
+
+        if daily_bars.shape[0] != need_check.shape[0]:
+            logger.warning(
+                "{} merged {}, expected {}".format(daily_bars.code[0], need_check.shape[0], daily_bars.shape[0]))
+            need_check = fillna(need_check.reindex(daily_bars.index, copy=False))
+        diff = daily_bars[['open', 'close']] == need_check[['open', 'close']]
+        res = (diff.open) & (diff.close)
+        sessions = res[res == False].index
+        return sessions
+
     def get_k_data(self, code, start, end, freq, check=True):
         if isinstance(start, str) or isinstance(end, str):
             start = pd.Timestamp(start)
@@ -357,35 +378,140 @@ class Engine:
             sessions = pd.bdate_range(start, end, weekmask='Mon Tue Wed Thu Fri')
         df = self._get_k_data(code, freq, sessions)
 
-        def check_df(freq, df, daily_bars):
-            if freq == '1m':
-                need_check = pd.DataFrame({
-                    'open': df['open'].resample('1D').first(),
-                    'high': df['high'].resample('1D').max(),
-                    'low': df['low'].resample('1D').min(),
-                    'close': df['close'].resample('1D').last(),
-                    'volume': df['volume'].resample('1D').sum()
-                }).dropna()
-            else:
-                need_check = df
-
-            if daily_bars.shape[0] != need_check.shape[0]:
-                logger.warning("{} merged {}, expected {}".format(code, need_check.shape[0], daily_bars.shape[0]))
-                need_check = fillna(need_check.reindex(daily_bars.index, copy=False))
-            diff = daily_bars[['open', 'close']] == need_check[['open', 'close']]
-            res = (diff.open) & (diff.close)
-            sessions = res[res == False].index
-            return sessions
-
         if not df.empty:
             if check:
-                sessions = check_df(freq, df, daily_bars)
+                sessions = self._check_df(freq, df, daily_bars)
                 if sessions.shape[0] != 0:
                     logger.info("fixing data for {}-{} with sessions: {}".format(code, freq, sessions))
                     fix = self._get_k_data(code, freq, sessions)
                     df.loc[fix.index] = fix
             return df
         return df
+
+
+class AsyncEngine(Engine):
+    def __init__(self, *args, **kwargs):
+        super(AsyncEngine, self).__init__(*args, **kwargs)
+
+        self.aapi = ATdxHq_API(ip=self.ip)
+
+    async def _get_transaction(self, code, date):
+        res = []
+        start = 0
+        while True:
+            data = await self.aapi.get_history_transaction_data(get_stock_type(code), code, start, 2000,
+                                                                date)
+            if not data:
+                break
+            start += 2000
+            res = data + res
+
+        if len(res) == 0:
+            return pd.DataFrame()
+        df = self.api.to_df(res).assign(date=date)
+        df.index = pd.to_datetime(str(date) + " " + df["time"])
+        df['code'] = code
+        return df.drop("time", axis=1)
+
+    def get_security_bars(self, code, freq, start=None, end=None, index=False):
+        if not isinstance(code, list):
+            code = [code]
+
+        res = [self._get_security_bars(c, freq, start, end, index) for c in code]
+        completed, pending = self.aapi.run_until_complete(asyncio.wait(res))
+
+        return [r.result() for r in completed]
+
+    @retry(3)
+    async def _get_security_bars(self, code, freq, start=None, end=None, index=False):
+        if index:
+            exchange = self.get_security_type(code)
+            func = self.aapi.get_index_bars
+        else:
+            exchange = get_stock_type(code)
+            func = self.aapi.get_security_bars
+
+        if start:
+            start = start.tz_localize(None)
+        if end:
+            end = end.tz_localize(None)
+
+        if freq in ['1d', 'day']:
+            freq = 9
+        elif freq in ['1m', 'min']:
+            freq = 8
+        else:
+            raise Exception("1d and 1m frequency supported only")
+
+        res = []
+        pos = 0
+        while True:
+            data = await func(freq, exchange, code, pos, 800)
+            if not data:
+                break
+            res = data + res
+            pos += 800
+
+            if start and pd.to_datetime(data[0]['datetime']) < start:
+                break
+        try:
+            df = self.api.to_df(res).drop(
+                ['year', 'month', 'day', 'hour', 'minute'], axis=1)
+            df['datetime'] = pd.to_datetime(df.datetime)
+            df.set_index('datetime', inplace=True)
+            if freq == 9:
+                df.index = df.index.normalize()
+        except ValueError:  # 未上市股票，无数据
+            logger.warning("no k line data for {}".format(code))
+            return code, pd.DataFrame({
+                'amount': [0],
+                'close': [0],
+                'open': [0],
+                'high': [0],
+                'low': [0],
+                'vol': [0],
+                'code': code
+            },
+                index=[start]
+            )
+        close = [df.close.values[-1]]
+        if start:
+            df = df.loc[lambda df: start <= df.index]
+        if end:
+            df = df.loc[lambda df: df.index.normalize() <= end]
+
+        if df.empty:
+            return code, pd.DataFrame({
+                'amount': [0],
+                'close': close,
+                'open': close,
+                'high': close,
+                'low': close,
+                'vol': [0],
+                'code': code
+            },
+                index=[start]
+            )
+        else:
+            df['code'] = code
+            return code, df
+
+    def _get_k_data(self, code, freq, sessions):
+        trade_days = map(int, sessions.strftime("%Y%m%d"))
+        if freq == '1m':
+            freq = '1 min'
+
+        if freq == '1d':
+            freq = '24 H'
+
+        res = [self._get_transaction(code, trade_day) for trade_day in
+               trade_days]
+        completed, pending = self.aapi.run_until_complete(asyncio.wait(res))
+        res = [Engine.minute_bars_from_transaction(t.result(), freq=freq) for t in completed]
+
+        if len(res) != 0:
+            return pd.concat(res).sort_index()
+        return pd.DataFrame()
 
 
 class ExEngine:
