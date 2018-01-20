@@ -48,34 +48,6 @@ def get_stock_type(stock):
     return 0
 
 
-if not PY2:
-    import queue
-
-
-    class ConcurrentApi:
-        def __init__(self, *args, **kwargs):
-            self.thread_num = kwargs.pop('thread_num', 4)
-            self.ip = kwargs.pop('ip', '14.17.75.71')
-            self.executor = ThreadPoolExecutor(self.thread_num)
-
-            self.queue = queue.Queue(self.thread_num)
-            for i in range(self.thread_num):
-                api = TdxHq_API(args, kwargs)
-                api.connect(self.ip)
-                self.queue.put(api)
-
-        def __getattr__(self, item):
-            api = self.queue.get()
-            func = api.__getattribute__(item)
-
-            def wrapper(*args, **kwargs):
-                res = self.executor.submit(func, *args, **kwargs)
-                self.queue.put(api)
-                return res
-
-            return wrapper
-
-
 def retry(times=3):
     def wrapper(func):
         @wraps(func)
@@ -111,21 +83,10 @@ class Engine:
             self.concurrent_thread_count = kwargs.pop('concurrent_thread_count', 50)
         self.thread_num = kwargs.pop('thread_num', 1)
 
-        if not PY2 and self.thread_num != 1:
-            self.use_concurrent = True
-        else:
-            self.use_concurrent = False
-
         self.api = TdxHq_API(args, kwargs, raise_exception=True)
-        if self.use_concurrent:
-            self.apis = [TdxHq_API(args, kwargs, raise_exception=True) for i in range(self.thread_num)]
-            self.executor = ThreadPoolExecutor(self.thread_num)
 
     def connect(self):
         self.api.connect(self.ip)
-        if self.use_concurrent:
-            for api in self.apis:
-                api.connect(self.ip)
         return self
 
     def __enter__(self):
@@ -133,15 +94,9 @@ class Engine:
 
     def exit(self):
         self.api.disconnect()
-        if self.use_concurrent:
-            for api in self.apis:
-                api.disconnect()
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.api.disconnect()
-        if self.use_concurrent:
-            for api in self.apis:
-                api.disconnect()
 
     def quotes(self, code):
         code = [code] if not isinstance(code, list) else code
@@ -155,16 +110,9 @@ class Engine:
 
     def stock_quotes(self):
         code = self.stock_list.index.tolist()
-        if self.use_concurrent:
-            res = {
-                self.executor.submit(self.apis[pos % self.thread_num].get_security_quotes,
-                                     code[80 * pos:80 * (pos + 1)]) \
-                for pos in range(int(len(code) / 80) + 1)}
-            return pd.concat([self.api.to_df(dic.result()) for dic in res])
-        else:
-            data = [self.api.to_df(self.api.get_security_quotes(
-                code[80 * pos:80 * (pos + 1)])) for pos in range(int(len(code) / 80) + 1)]
-            return pd.concat(data)
+        data = [self.api.to_df(self.api.get_security_quotes(
+            code[80 * pos:80 * (pos + 1)])) for pos in range(int(len(code) / 80) + 1)]
+        return pd.concat(data)
 
     @lazyval
     def security_list(self):
@@ -362,12 +310,14 @@ class Engine:
         afternoon = resample(transaction[~mask])
         if morning.empty and afternoon.empty:
             return pd.DataFrame()
-        morning.index.values[-1] = afternoon.index[0] - pd.Timedelta('1 min')
+        if not afternoon.empty:
+            morning.index.values[-1] = afternoon.index[0] - pd.Timedelta('1 min')
+
         df = pd.concat([morning, afternoon])
 
         return fillna(df)
 
-    def _get_k_data(self,code, freq, sessions):
+    def _get_k_data(self, code, freq, sessions):
         trade_days = map(int, sessions.strftime("%Y%m%d"))
         if freq == '1m':
             freq = '1 min'
@@ -408,7 +358,7 @@ class Engine:
             sessions = daily_bars.index
         else:
             sessions = pd.bdate_range(start, end, weekmask='Mon Tue Wed Thu Fri')
-        df = self._get_k_data(code,freq,sessions)
+        df = self._get_k_data(code, freq, sessions)
 
         def check_df(freq, df, daily_bars):
             if freq == '1m':
@@ -422,6 +372,9 @@ class Engine:
             else:
                 need_check = df
 
+            if daily_bars.shape[0] != need_check.shape[0]:
+                logger.warning("{} merged {}, expected {}".format(code, need_check.shape[0], daily_bars.shape[0]))
+                need_check = fillna(need_check.reindex(daily_bars.index, copy=False))
             diff = daily_bars[['open', 'close']] == need_check[['open', 'close']]
             res = (diff.open) & (diff.close)
             sessions = res[res == False].index
@@ -431,8 +384,8 @@ class Engine:
             if check:
                 sessions = check_df(freq, df, daily_bars)
                 if sessions.shape[0] != 0:
-                    logger.info("fixing data for {}-{} with sessions: {}".format(code,freq,sessions))
-                    fix = self._get_k_data(code,freq,sessions)
+                    logger.info("fixing data for {}-{} with sessions: {}".format(code, freq, sessions))
+                    fix = self._get_k_data(code, freq, sessions)
                     df.loc[fix.index] = fix
             return df
         return df
