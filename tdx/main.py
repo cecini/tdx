@@ -4,6 +4,7 @@ from tdx.engine import Engine
 import datetime
 from tdx.utils.util import precise_round
 import pandas as pd
+import logbook
 import threading
 import timeit
 import click
@@ -41,9 +42,10 @@ def quotes():
 
 
 def main():
+    logbook.StderrHandler().push_application()
     engine = Engine(best_ip=True, thread_num=1)
     with engine.connect():
-        engine.get_k_data('000001', '20161201', '20171231', '1m')
+        engine.get_k_data('000002', '20100921', '20100930', '1m')
 
 
 def test_transaction():
