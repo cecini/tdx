@@ -71,10 +71,17 @@ def retry(times=3):
     return wrapper
 
 
-class Engine:
+class Engine(object):
+    pass
+
+class Engine(object):
     concurrent_thread_count = 50
+    eg2_ip = "60.191.117.167"
+    eg2_kwargs = None
+    _eg2 = None
 
     def __init__(self, *args, **kwargs):
+        self.eg2_kwargs = kwargs
         if 'ip' in kwargs:
             self.ip = kwargs.pop('ip')
         else:
@@ -87,6 +94,14 @@ class Engine:
         self.thread_num = kwargs.pop('thread_num', 1)
 
         self.api = TdxHq_API(args, kwargs, raise_exception=True)
+
+    @property
+    def eg2(self):
+        if self._eg2 is None:
+            self.eg2_kwargs["ip"] = self.eg2_ip
+            self._eg2 = Engine(**self.eg2_kwargs)
+            self._eg2.connect()
+        return self._eg2
 
     def connect(self):
         self.api.connect(self.ip)
@@ -402,14 +417,17 @@ class Engine:
                     sessions, dt_added = check_df(freq, df, daily_bars)
                     if sessions.shape[0] != 0:
                         logger.info("fixing data for {}-{} with sessions: {}".format(code, freq, sessions))
-                        fix = self._get_k_data(code, freq, sessions)
-                        if dt_added is not None and len(dt_added) > 0:
-                            mask = ~fix.index.isin(df.index)
-                            df_added = fix[mask]
-                            df = pd.concat([df, df_added])
-                            fix = fix[~mask]
+                        fix = self.eg2._get_k_data(code, freq, sessions)
+                        # if dt_added is not None and len(dt_added) > 0:
+                        mask = ~fix.index.isin(df.index)
+                        df_added = fix[mask]
+                        df = pd.concat([df, df_added])
+                        fix = fix[~mask]
+
                         df.loc[fix.index] = fix
                     else:
+                        if check_count < 3:
+                            logger.info("fixing data for {}-{} success".format(code, freq))
                         break
                     check_count -= 1
             return df
