@@ -6,6 +6,7 @@ from pytdx.util.best_ip import select_best_ip
 from pytdx.reader import CustomerBlockReader, GbbqReader
 from tdx.utils.util import fillna
 import pandas as pd
+import numpy as np
 from functools import wraps
 import gevent
 from tdx.utils.memoize import lazyval
@@ -322,9 +323,14 @@ class Engine:
         if len(res) == 0:
             return pd.DataFrame()
         df = self.api.to_df(res).assign(date=date)
-        df.loc[0, 'time'] = df.time[1]
-        df.index = pd.to_datetime(str(date) + " " + df["time"])
+        df['time'] = pd.to_datetime(str(date) + " " + df["time"])
+        if len(df) >= 2:
+            df.loc[0, 'time'] = df.time[1]
+        else:  # 20160127 000157 中联重科 熔断，极端情况下，只有第一分钟交易
+            df.loc[0, 'time'] = df.time[0] + pd.Timedelta(1, unit='m')
+
         df['code'] = code
+        df.index = df['time']
         return df.drop("time", axis=1)
 
     def time_and_price(self, code):
@@ -374,36 +380,7 @@ class Engine:
 
         return fillna(df)
 
-    def check_df_daily(self, freq, code, df, daily_bars):
-        if freq == '1 min' or freq == '1m':
-            need_check = pd.DataFrame({
-                'open': df['open'].resample('1D').first(),
-                'high': df['high'].resample('1D').max(),
-                'low': df['low'].resample('1D').min(),
-                'close': df['close'].resample('1D').last(),
-                'volume': df['volume'].resample('1D').sum()
-            }).dropna()
-        else:
-            need_check = df
-
-        diff = daily_bars[['open', 'close']] == need_check[['open', 'close']]
-        res = (diff.open) & (diff.close)
-        sessions = res[res == False].index
-        if sessions.shape[0] != 0:
-            logger.info("fixing data for {}-{} with sessions: {}".format(code, freq, sessions))
-            raise ValueError("minute bar doesn't match day on {} at {}".format(code, daily_bars.index[0]))
-        return True
-
-    @retry(3)
-    def minute_bars_from_transaction_with_check(self, code, trade_day, freq, daily_bars):
-        df = Engine.minute_bars_from_transaction(self._get_transaction(code, trade_day), freq)
-        if daily_bars is not None:
-            df2 = daily_bars[daily_bars.index == pd.to_datetime(df.index[0].date())]
-            self.check_df_daily(freq, code, df, df2)
-        return df
-
-
-    def _get_k_data(self,code, freq, sessions, daily_bars=None):
+    def _get_k_data(self, code, freq, sessions):
         trade_days = map(int, sessions.strftime("%Y%m%d"))
         if freq == '1m':
             freq = '1 min'
@@ -416,11 +393,10 @@ class Engine:
         jobs = []
         for trade_day in trade_days:
             # df = Engine.minute_bars_from_transaction(self._get_transaction(code, trade_day), freq)
-
-            reqevent = gevent.spawn(self.minute_bars_from_transaction_with_check, code, trade_day, freq, daily_bars)
+            reqevent = gevent.spawn(Engine.minute_bars_from_transaction, self._get_transaction(code, trade_day), freq)
             jobs.append(reqevent)
             if len(jobs) >= concurrent_count:
-                gevent.joinall(jobs, timeout=120)
+                gevent.joinall(jobs, timeout=30)
                 for j in jobs:
                     if j.value is not None and not j.value.empty:
                         res.append(j.value)
@@ -438,7 +414,6 @@ class Engine:
         if isinstance(start, str) or isinstance(end, str):
             start = pd.Timestamp(start)
             end = pd.Timestamp(end)
-        daily_bars = None
         if check:
             daily_bars = self.get_security_bars(code, '1d', start, end)
             if daily_bars is None or daily_bars.empty:
@@ -446,7 +421,52 @@ class Engine:
             sessions = daily_bars.index
         else:
             sessions = pd.bdate_range(start, end, weekmask='Mon Tue Wed Thu Fri')
-        return self._get_k_data(code, freq, sessions, daily_bars)
+        df = self._get_k_data(code, freq, sessions)
+
+        def check_df(freq, df, daily_bars):
+            if freq == '1m':
+                need_check = pd.DataFrame({
+                    'open': df['open'].resample('1D').first(),
+                    'high': df['high'].resample('1D').max(),
+                    'low': df['low'].resample('1D').min(),
+                    'close': df['close'].resample('1D').last(),
+                    'volume': df['volume'].resample('1D').sum()
+                }).dropna()
+            else:
+                need_check = df
+            dt_only_daily = daily_bars.index.difference(need_check.index)
+            if len(dt_only_daily) > 0:   # 002096 20120606
+                df_new = pd.DataFrame(index=dt_only_daily, columns=need_check.columns)
+                need_check = pd.concat([need_check, df_new])
+                need_check.sort_index(inplace=True)
+            else:
+                dt_only_daily = None
+            diff = daily_bars[['open', 'close']] == need_check[['open', 'close']]
+            res = (diff.open) & (diff.close)
+            sessions = res[res == False].index
+            return sessions, dt_only_daily
+
+        if not df.empty:
+            if check:
+                check_count = 3
+                while(True):
+                    if check_count < 0:
+                        break
+                    sessions, dt_added = check_df(freq, df, daily_bars)
+                    if sessions.shape[0] != 0:
+                        logger.info("fixing data for {}-{} with sessions: {}".format(code, freq, sessions))
+                        fix = self._get_k_data(code, freq, sessions)
+                        if dt_added is not None and len(dt_added) > 0:
+                            mask = ~fix.index.isin(df.index)
+                            df_added = fix[mask]
+                            df = pd.concat([df, df_added])
+                            fix = fix[~mask]
+                        df.loc[fix.index] = fix
+                    else:
+                        break
+                    check_count -= 1
+            return df
+        return df
 
 
 class ExEngine:
