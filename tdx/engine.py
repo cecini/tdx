@@ -312,6 +312,8 @@ class Engine(object):
                 break
 
         df = self.api.to_df(res)
+        if df.empty:
+            return df
         df.time = pd.to_datetime(str(pd.to_datetime('today').date()) + " " + df['time'])
         df.loc[0, 'time'] = df.time[1]
         return df.set_index('time')
@@ -397,16 +399,14 @@ class Engine(object):
                 }).dropna()
             else:
                 need_check = df
-            
-            dt_only_daily = None
+
             if daily_bars.shape[0] != need_check.shape[0]:
                 logger.warning("{} merged {}, expected {}".format(code, need_check.shape[0], daily_bars.shape[0]))
                 need_check = fillna(need_check.reindex(daily_bars.index, copy=False))
-                dt_only_daily = daily_bars.index.difference(need_check.index)
             diff = daily_bars[['open', 'close']] == need_check[['open', 'close']]
             res = (diff.open) & (diff.close)
             sessions = res[res == False].index
-            return sessions, dt_only_daily
+            return sessions
 
         if not df.empty:
             if check:
