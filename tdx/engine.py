@@ -6,11 +6,12 @@ from pytdx.util.best_ip import select_best_ip
 from pytdx.reader import CustomerBlockReader, GbbqReader
 from tdx.utils.util import fillna
 import pandas as pd
+import numpy as np
 from functools import wraps
 import gevent
 from tdx.utils.memoize import lazyval
 from six import PY2
-
+import time
 if not PY2:
     from concurrent.futures import ThreadPoolExecutor
 
@@ -58,6 +59,8 @@ def retry(times=3):
                 try:
                     return func(*args, **kwargs)
                 except Exception as e:
+                    logger.error("error", e)
+                    time.sleep(1)
                     cls.connect()
                     count = count + 1
 
@@ -68,10 +71,17 @@ def retry(times=3):
     return wrapper
 
 
-class Engine:
+class Engine(object):
+    pass
+
+class Engine(object):
     concurrent_thread_count = 50
+    eg2_ip = "60.191.117.167"
+    eg2_kwargs = None
+    _eg2 = None
 
     def __init__(self, *args, **kwargs):
+        self.eg2_kwargs = kwargs
         if 'ip' in kwargs:
             self.ip = kwargs.pop('ip')
         else:
@@ -84,6 +94,14 @@ class Engine:
         self.thread_num = kwargs.pop('thread_num', 1)
 
         self.api = TdxHq_API(args, kwargs, raise_exception=True)
+
+    @property
+    def eg2(self):
+        if self._eg2 is None:
+            self.eg2_kwargs["ip"] = self.eg2_ip
+            self._eg2 = Engine(**self.eg2_kwargs)
+            self._eg2.connect()
+        return self._eg2
 
     def connect(self):
         self.api.connect(self.ip)
@@ -268,9 +286,14 @@ class Engine:
         if len(res) == 0:
             return pd.DataFrame()
         df = self.api.to_df(res).assign(date=date)
-        df.loc[0, 'time'] = df.time[1]
-        df.index = pd.to_datetime(str(date) + " " + df["time"])
+        df['time'] = pd.to_datetime(str(date) + " " + df["time"])
+        if len(df) >= 2:
+            df.loc[0, 'time'] = df.time[1]
+        else:  # 20160127 000157 中联重科 熔断，极端情况下，只有第一分钟交易
+            df.loc[0, 'time'] = df.time[0] + pd.Timedelta(1, unit='m')
+
         df['code'] = code
+        df.index = df['time']
         return df.drop("time", axis=1)
 
     def time_and_price(self, code):
@@ -278,13 +301,19 @@ class Engine:
         res = []
         exchange = self.get_security_type(code)
         while True:
-            data = self.api.get_transaction_data(exchange, code, start, 2000)
-            if not data:
+            try:
+                data = self.api.get_transaction_data(exchange, code, start, 2000)
+                if not data:
+                    break
+                res = data + res
+                start += 2000
+            except Exception as ex:
+                logger.error("data error", ex)
                 break
-            res = data + res
-            start += 2000
 
         df = self.api.to_df(res)
+        if df.empty:
+            return df
         df.time = pd.to_datetime(str(pd.to_datetime('today').date()) + " " + df['time'])
         df.loc[0, 'time'] = df.time[1]
         return df.set_index('time')
@@ -312,7 +341,6 @@ class Engine:
             return pd.DataFrame()
         if not afternoon.empty:
             morning.index.values[-1] = afternoon.index[0] - pd.Timedelta('1 min')
-
         df = pd.concat([morning, afternoon])
 
         return fillna(df)
@@ -382,11 +410,26 @@ class Engine:
 
         if not df.empty:
             if check:
-                sessions = check_df(freq, df, daily_bars)
-                if sessions.shape[0] != 0:
-                    logger.info("fixing data for {}-{} with sessions: {}".format(code, freq, sessions))
-                    fix = self._get_k_data(code, freq, sessions)
-                    df.loc[fix.index] = fix
+                check_count = 3
+                while(True):
+                    if check_count < 0:
+                        break
+                    sessions = check_df(freq, df, daily_bars)
+                    if sessions.shape[0] != 0:
+                        logger.info("fixing data for {}-{} with sessions: {}".format(code, freq, sessions))
+                        fix = self.eg2._get_k_data(code, freq, sessions)
+                        # if dt_added is not None and len(dt_added) > 0:
+                        mask = ~fix.index.isin(df.index)
+                        df_added = fix[mask]
+                        df = pd.concat([df, df_added])
+                        fix = fix[~mask]
+
+                        df.loc[fix.index] = fix
+                    else:
+                        if check_count < 3:
+                            logger.info("fixing data for {}-{} success".format(code, freq))
+                        break
+                    check_count -= 1
             return df
         return df
 
