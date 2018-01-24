@@ -414,7 +414,7 @@ class Engine(object):
                 while(True):
                     if check_count < 0:
                         break
-                    sessions, dt_added = check_df(freq, df, daily_bars)
+                    sessions = check_df(freq, df, daily_bars)
                     if sessions.shape[0] != 0:
                         logger.info("fixing data for {}-{} with sessions: {}".format(code, freq, sessions))
                         fix = self.eg2._get_k_data(code, freq, sessions)
