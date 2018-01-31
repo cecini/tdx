@@ -7,10 +7,10 @@ def precise_round(num):
 
 
 def fillna(df):
-    mask = pd.isnull(df.close)
+    mask = pd.isnull(df.open)
     df.close.fillna(method='pad', inplace=True)
     df.volume.fillna(0, inplace=True)
-    df.loc[mask, ["high", "low", "open"]] = df.close[mask]
+    df.loc[mask, ["high", "low", "open"]] = df.loc[mask, "close"]
     return df
 
 

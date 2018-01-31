@@ -1,3 +1,4 @@
+
 from tdx.engine import Engine, AsyncEngine
 
 
@@ -46,12 +47,9 @@ def engine_func(best_ip, thread_num):
 
 
 def transactions():
-    eg = Engine(best_ip=True)
+    eg = Engine(best_ip=True, auto_retry=True)
     eg.connect()
-    m1 = eg.get_security_bars('000001', '1m')
-    df = eg.time_and_price('000001')
-    ohlcv = df.price.resample('1 Min', label='right', closed='left').ohlc()
-    ohlcv['volume'] = df.vol.resample('1 Min', label='right', closed='left').sum()
+    m1 = eg.get_k_data('000001', '20170101', '20180101', '1m')
 
 
 transactions()

@@ -1,5 +1,4 @@
 # -*- coding:utf-8 –*-
-import threading
 from pytdx.hq import TdxHq_API
 from pytdx.async.hq import ATdxHq_API
 from pytdx.exhq import TdxExHq_API
@@ -9,26 +8,18 @@ from pytdx.reader import CustomerBlockReader, GbbqReader
 from tdx.utils.util import fillna
 import pandas as pd
 from functools import wraps
-import asyncio
 import gevent
 import traceback
 from tdx.utils.memoize import lazyval
 from six import PY2
 
-if not PY2:
-    from concurrent.futures import ThreadPoolExecutor
+import asyncio
 
 from tdx.config import *
 
-# from logbook import Logger
-import sys
-# StreamHandler(sys.stdout).push_application()
-import threading
+from logbook import Logger
 
-import logging as logger
-
-
-# logger = Logger('engine')
+logger = Logger('engine')
 
 
 def stock_filter(code):
@@ -56,34 +47,6 @@ def get_stock_type(stock):
         return 1
 
     return 0
-
-
-if not PY2:
-    import queue
-
-
-    class ConcurrentApi:
-        def __init__(self, *args, **kwargs):
-            self.thread_num = kwargs.pop('thread_num', 4)
-            self.ip = kwargs.pop('ip', '14.17.75.71')
-            self.executor = ThreadPoolExecutor(self.thread_num)
-
-            self.queue = queue.Queue(self.thread_num)
-            for i in range(self.thread_num):
-                api = TdxHq_API(args, kwargs)
-                api.connect(self.ip)
-                self.queue.put(api)
-
-        def __getattr__(self, item):
-            api = self.queue.get()
-            func = api.__getattribute__(item)
-
-            def wrapper(*args, **kwargs):
-                res = self.executor.submit(func, *args, **kwargs)
-                self.queue.put(api)
-                return res
-
-            return wrapper
 
 
 def retry(times=3):
@@ -121,21 +84,10 @@ class Engine:
             self.concurrent_thread_count = kwargs.pop('concurrent_thread_count', 50)
         self.thread_num = kwargs.pop('thread_num', 1)
 
-        if not PY2 and self.thread_num != 1:
-            self.use_concurrent = True
-        else:
-            self.use_concurrent = False
-
-        self.api = TdxHq_API(*args, **kwargs)
-        if self.use_concurrent:
-            self.apis = [TdxHq_API(*args, **kwargs) for i in range(self.thread_num)]
-            self.executor = ThreadPoolExecutor(self.thread_num)
+        self.api = TdxHq_API(args, kwargs, raise_exception=True)
 
     def connect(self):
         self.api.connect(self.ip)
-        if self.use_concurrent:
-            for api in self.apis:
-                api.connect(self.ip)
         return self
 
     def __enter__(self):
@@ -143,15 +95,9 @@ class Engine:
 
     def exit(self):
         self.api.disconnect()
-        if self.use_concurrent:
-            for api in self.apis:
-                api.disconnect()
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.api.disconnect()
-        if self.use_concurrent:
-            for api in self.apis:
-                api.disconnect()
 
     def quotes(self, code):
         code = [code] if not isinstance(code, list) else code
@@ -165,16 +111,9 @@ class Engine:
 
     def stock_quotes(self):
         code = self.stock_list.index.tolist()
-        if self.use_concurrent:
-            res = {
-                self.executor.submit(self.apis[pos % self.thread_num].get_security_quotes,
-                                     code[80 * pos:80 * (pos + 1)]) \
-                for pos in range(int(len(code) / 80) + 1)}
-            return pd.concat([self.api.to_df(dic.result()) for dic in res])
-        else:
-            data = [self.api.to_df(self.api.get_security_quotes(
-                code[80 * pos:80 * (pos + 1)])) for pos in range(int(len(code) / 80) + 1)]
-            return pd.concat(data)
+        data = [self.api.to_df(self.api.get_security_quotes(
+            code[80 * pos:80 * (pos + 1)])) for pos in range(int(len(code) / 80) + 1)]
+        return pd.concat(data)
 
     @lazyval
     def security_list(self):
@@ -327,6 +266,7 @@ class Engine:
         if len(res) == 0:
             return pd.DataFrame()
         df = self.api.to_df(res).assign(date=date)
+        df.loc[0, 'time'] = df.time[1]
         df.index = pd.to_datetime(str(date) + " " + df["time"])
         df['code'] = code
         return df.drop("time", axis=1)
@@ -351,22 +291,32 @@ class Engine:
     def minute_bars_from_transaction(cls, transaction, freq):
         if transaction.empty:
             return pd.DataFrame()
-        data = transaction['price'].resample(
-            freq, label='right', closed='left').ohlc()
+        mask = transaction.index < transaction.index[0].normalize() + pd.Timedelta('12 H')
 
-        data['volume'] = transaction['vol'].resample(
-            freq, label='right', closed='left').sum()
-        data['code'] = transaction['code'][0]
+        def resample(transaction):
+            if transaction.empty:
+                return pd.DataFrame()
+            data = transaction['price'].resample(
+                freq, label='right', closed='left').ohlc()
 
-        return fillna(data)
+            data['volume'] = transaction['vol'].resample(
+                freq, label='right', closed='left').sum()
+            data['code'] = transaction['code'][0]
+            return data
 
-    def get_k_data(self, code, start, end, freq):
-        if isinstance(start, str) or isinstance(end, str):
-            start = pd.Timestamp(start)
-            end = pd.Timestamp(end)
-            sessions = pd.bdate_range(start, end, weekmask='Mon Tue Wed Thu Fri')
+        morning = resample(transaction[mask])
+        afternoon = resample(transaction[~mask])
+        if morning.empty and afternoon.empty:
+            return pd.DataFrame()
+        if not afternoon.empty:
+            morning.index.values[-1] = afternoon.index[0] - pd.Timedelta('1 min')
+
+        df = pd.concat([morning, afternoon])
+
+        return fillna(df)
+
+    def _get_k_data(self, code, freq, sessions):
         trade_days = map(int, sessions.strftime("%Y%m%d"))
-
         if freq == '1m':
             freq = '1 min'
 
@@ -391,10 +341,53 @@ class Engine:
             if j.value is not None and not j.value.empty:
                 res.append(j.value)
         jobs.clear()
-
         if len(res) != 0:
             return pd.concat(res)
         return pd.DataFrame()
+
+    def _check_df(self,freq, df, daily_bars):
+        if freq == '1m':
+            need_check = pd.DataFrame({
+                'open': df['open'].resample('1D').first(),
+                'high': df['high'].resample('1D').max(),
+                'low': df['low'].resample('1D').min(),
+                'close': df['close'].resample('1D').last(),
+                'volume': df['volume'].resample('1D').sum()
+            }).dropna()
+        else:
+            need_check = df
+
+        if daily_bars.shape[0] != need_check.shape[0]:
+            logger.warning(
+                "{} merged {}, expected {}".format(daily_bars.code[0], need_check.shape[0], daily_bars.shape[0]))
+            need_check = fillna(need_check.reindex(daily_bars.index, copy=False))
+        diff = daily_bars[['open', 'close']] == need_check[['open', 'close']]
+        res = (diff.open) & (diff.close)
+        sessions = res[res == False].index
+        return sessions
+
+    def get_k_data(self, code, start, end, freq, check=True):
+        if isinstance(start, str) or isinstance(end, str):
+            start = pd.Timestamp(start)
+            end = pd.Timestamp(end)
+        if check:
+            daily_bars = self.get_security_bars(code, '1d', start, end)
+            if daily_bars is None or daily_bars.empty:
+                return daily_bars
+            sessions = daily_bars.index
+        else:
+            sessions = pd.bdate_range(start, end, weekmask='Mon Tue Wed Thu Fri')
+        df = self._get_k_data(code, freq, sessions)
+
+        if not df.empty:
+            if check:
+                sessions = self._check_df(freq, df, daily_bars)
+                if sessions.shape[0] != 0:
+                    logger.info("fixing data for {}-{} with sessions: {}".format(code, freq, sessions))
+                    fix = self._get_k_data(code, freq, sessions)
+                    df.loc[fix.index] = fix
+            return df
+        return df
 
 
 class AsyncEngine(Engine):
@@ -506,13 +499,8 @@ class AsyncEngine(Engine):
             df['code'] = code
             return df
 
-    def get_k_data(self, code, start, end, freq):
-        if isinstance(start, str) or isinstance(end, str):
-            start = pd.Timestamp(start)
-            end = pd.Timestamp(end)
-        sessions = pd.bdate_range(start, end, weekmask='Mon Tue Wed Thu Fri')
+    def _get_k_data(self, code, freq, sessions):
         trade_days = map(int, sessions.strftime("%Y%m%d"))
-
         if freq == '1m':
             freq = '1 min'
 
