@@ -11,6 +11,7 @@ import pandas as pd
 from functools import wraps
 import asyncio
 import gevent
+import traceback
 from tdx.utils.memoize import lazyval
 from six import PY2
 
@@ -125,9 +126,9 @@ class Engine:
         else:
             self.use_concurrent = False
 
-        self.api = TdxHq_API(args, kwargs)
+        self.api = TdxHq_API(*args, **kwargs)
         if self.use_concurrent:
-            self.apis = [TdxHq_API(args, kwargs) for i in range(self.thread_num)]
+            self.apis = [TdxHq_API(*args, **kwargs) for i in range(self.thread_num)]
             self.executor = ThreadPoolExecutor(self.thread_num)
 
     def connect(self):
@@ -412,6 +413,7 @@ class AsyncEngine(Engine):
                 break
             start += 2000
             res = data + res
+            print(code, date)
 
         if len(res) == 0:
             return pd.DataFrame()
@@ -420,7 +422,7 @@ class AsyncEngine(Engine):
         df['code'] = code
         return df.drop("time", axis=1)
 
-    def get_security_bars(self, code, freq, start=None, end=None, index=False):
+    def get_async_security_bars(self, code, freq, start=None, end=None, index=False):
         if not isinstance(code, list):
             code = [code]
 
@@ -458,29 +460,40 @@ class AsyncEngine(Engine):
                 break
             res = data + res
             pos += 800
-
-            if start and pd.to_datetime(data[0]['datetime']) < start:
-                break
+            try:
+                if start and pd.to_datetime(data[0]['datetime']) < start:
+                    break
+            except:
+                print(code, data[0])
+        if len(res) == 0:
+            raise Exception('none res data')
         try:
+
             df = self.api.to_df(res).drop(
                 ['year', 'month', 'day', 'hour', 'minute'], axis=1)
-            df['datetime'] = pd.to_datetime(df.datetime)
+            try:
+                df['datetime'] = pd.to_datetime(df.datetime)
+            except: # 服务器返回的k线时间有误，0000-00-00
+                mask = df.open == 0
+                mask = mask[mask == True]
+                startDate, endDate = mask.index[[0,-1]]
+                df = df[df.open != 0]
+                df['datetime'] = pd.to_datetime(df.datetime)
+                logger.warning("symbol {0} meet date error, "
+                    "from date {1} to {2} not including {1} and {2}, "
+                    "we just skip it!"
+                    .format(code,
+                    df['datetime'][startDate - 1],
+                    df['datetime'][endDate + 1])
+                )
+
             df.set_index('datetime', inplace=True)
             if freq == 9:
                 df.index = df.index.normalize()
         except ValueError:  # 未上市股票，无数据
             logger.warning("no k line data for {}".format(code))
-            return code, pd.DataFrame({
-                'amount': [0],
-                'close': [0],
-                'open': [0],
-                'high': [0],
-                'low': [0],
-                'vol': [0],
-                'code': code
-            },
-                index=[start]
-            )
+            traceback.print_exc()
+            return pd.DataFrame()
         close = [df.close.values[-1]]
         if start:
             df = df.loc[lambda df: start <= df.index]
@@ -488,20 +501,10 @@ class AsyncEngine(Engine):
             df = df.loc[lambda df: df.index.normalize() <= end]
 
         if df.empty:
-            return code, pd.DataFrame({
-                'amount': [0],
-                'close': close,
-                'open': close,
-                'high': close,
-                'low': close,
-                'vol': [0],
-                'code': code
-            },
-                index=[start]
-            )
+            return pd.DataFrame()
         else:
             df['code'] = code
-            return code, df
+            return df
 
     def get_k_data(self, code, start, end, freq):
         if isinstance(start, str) or isinstance(end, str):
