@@ -204,6 +204,9 @@ class Engine:
             res = data + res
             pos += 800
 
+            if len(data) < 800:
+                break
+
             if start and pd.to_datetime(data[0]['datetime']) < start:
                 break
         try:
@@ -263,6 +266,9 @@ class Engine:
             start += 2000
             res = data + res
 
+            if len(data) < 2000:
+                break
+
         if len(res) == 0:
             return pd.DataFrame()
         df = self.api.to_df(res).assign(date=date)
@@ -281,6 +287,9 @@ class Engine:
                 break
             res = data + res
             start += 2000
+
+            if len(data) < 2000:
+                break
 
         df = self.api.to_df(res)
         df.time = pd.to_datetime(str(pd.to_datetime('today').date()) + " " + df['time'])
@@ -406,7 +415,8 @@ class AsyncEngine(Engine):
                 break
             start += 2000
             res = data + res
-            print(code, date)
+            if len(data) < 2000:
+                break
 
         if len(res) == 0:
             return pd.DataFrame()
@@ -419,10 +429,13 @@ class AsyncEngine(Engine):
         if not isinstance(code, list):
             code = [code]
 
-        res = [self._get_security_bars(c, freq, start, end, index) for c in code]
+        res = [self._get_security_bars1(c, freq, start, end, index) for c in code]
         completed, pending = self.aapi.run_until_complete(asyncio.wait(res))
 
         return [r.result() for r in completed]
+
+    async def _get_security_bars1(self,c, freq, start, end, index):
+        return c, await self._get_security_bars(c, freq, start, end, index)
 
     @retry(3)
     async def _get_security_bars(self, code, freq, start=None, end=None, index=False):
@@ -447,21 +460,27 @@ class AsyncEngine(Engine):
 
         res = []
         pos = 0
+        retry = False
         while True:
             data = await func(freq, exchange, code, pos, 800)
-            if not data:
+            if data == None:
+                print("None data")
                 break
             res = data + res
             pos += 800
+
+            if isinstance(data,list) and len(data) < 800:
+                break
+
             try:
                 if start and pd.to_datetime(data[0]['datetime']) < start:
                     break
             except:
                 print(code, data[0])
-        if len(res) == 0:
-            raise Exception('none res data')
         try:
-
+            if len(res) == 0:
+                print("no k data for {}".join(code))
+                return pd.DataFrame()
             df = self.api.to_df(res).drop(
                 ['year', 'month', 'day', 'hour', 'minute'], axis=1)
             try:
