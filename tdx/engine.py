@@ -317,8 +317,11 @@ class Engine:
         afternoon = resample(transaction[~mask])
         if morning.empty and afternoon.empty:
             return pd.DataFrame()
-        if not afternoon.empty:
-            morning.index.values[-1] = afternoon.index[0] - pd.Timedelta('1 min')
+        if not morning.empty:
+            if not afternoon.empty:
+                morning.index.values[-1] = afternoon.index[0] - pd.Timedelta('1 min')
+            else:
+                morning.index.values[-1] = morning.index.values[-1] + pd.Timedelta('90 min')
 
         df = pd.concat([morning, afternoon])
 
@@ -365,6 +368,8 @@ class Engine:
             }).dropna()
         else:
             need_check = df
+
+        daily_bars = daily_bars[daily_bars.index >= need_check.index[0]]
 
         if daily_bars.shape[0] != need_check.shape[0]:
             logger.warning(
@@ -421,6 +426,7 @@ class AsyncEngine(Engine):
         if len(res) == 0:
             return pd.DataFrame()
         df = self.api.to_df(res).assign(date=date)
+        df.loc[0, 'time'] = df.time[1]
         df.index = pd.to_datetime(str(date) + " " + df["time"])
         df['code'] = code
         return df.drop("time", axis=1)
@@ -479,7 +485,7 @@ class AsyncEngine(Engine):
                 print(code, data[0])
         try:
             if len(res) == 0:
-                print("no k data for {}".join(code))
+                print("no k data for {}".format(code))
                 return pd.DataFrame()
             df = self.api.to_df(res).drop(
                 ['year', 'month', 'day', 'hour', 'minute'], axis=1)
@@ -556,3 +562,12 @@ class ExEngine:
     @lazyval
     def markets(self):
         return self.api.to_df(self.api.get_markets())
+
+
+if __name__ == '__main__':
+    aeg = AsyncEngine(ip='202.108.253.130', auto_retry=True, raise_exception=True)
+    aeg.connect()
+    start = pd.Timestamp('1990-12-19')
+    end  = pd.Timestamp('2018-02-02')
+    df = aeg.get_k_data('000049', start, end, '1m')
+    print(df)
