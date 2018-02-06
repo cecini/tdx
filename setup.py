@@ -21,7 +21,7 @@ setup(
     url='https://github.com/JaysonAlbert/tdx',
     packages=find_packages(),
     install_requires=[
-        'pytdx',
+        'pytdx-async',
         'toolz',
         'pandas<0.19,>=0.18.1',
     ],
