@@ -11,7 +11,7 @@ except (IOError, ImportError):
     long_description = ''
 
 setup(
-    name='tdx_wrapper',
+    name='tdx_wrapper_async',
     version=versioneer.get_version(),
     cmdclass=versioneer.get_cmdclass(),
     description='A Python wrapper of pytdx',
@@ -21,7 +21,7 @@ setup(
     url='https://github.com/JaysonAlbert/tdx',
     packages=find_packages(),
     install_requires=[
-        'pytdx',
+        'pytdx-async',
         'toolz',
         'pandas<0.19,>=0.18.1',
     ],
