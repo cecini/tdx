@@ -12,6 +12,7 @@ import gevent
 import traceback
 from tdx.utils.memoize import lazyval
 from six import PY2
+from pymongo import MongoClient
 
 import asyncio
 
@@ -272,7 +273,7 @@ class Engine:
         if len(res) == 0:
             return pd.DataFrame()
         df = self.api.to_df(res).assign(date=date)
-        df.loc[0, 'time'] = df.time[1]
+        # df.loc[0, 'time'] = df.time[1]
         df.index = pd.to_datetime(str(date) + " " + df["time"])
         df['code'] = code
         return df.drop("time", axis=1)
@@ -393,14 +394,14 @@ class Engine:
             sessions = pd.bdate_range(start, end, weekmask='Mon Tue Wed Thu Fri')
         df = self._get_k_data(code, freq, sessions)
 
-        if not df.empty:
-            if check:
-                sessions = self._check_df(freq, df, daily_bars)
-                if sessions.shape[0] != 0:
-                    logger.info("fixing data for {}-{} with sessions: {}".format(code, freq, sessions))
-                    fix = self._get_k_data(code, freq, sessions)
-                    df.loc[fix.index] = fix
-            return df
+        # if not df.empty:
+        #     if check:
+        #         sessions = self._check_df(freq, df, daily_bars)
+        #         if sessions.shape[0] != 0:
+        #             logger.info("fixing data for {}-{} with sessions: {}".format(code, freq, sessions))
+        #             fix = self._get_k_data(code, freq, sessions)
+        #             df.loc[fix.index] = fix
+        #     return df
         return df
 
 
@@ -426,7 +427,10 @@ class AsyncEngine(Engine):
         if len(res) == 0:
             return pd.DataFrame()
         df = self.api.to_df(res).assign(date=date)
-        df.loc[0, 'time'] = df.time[1]
+        try:
+            df.loc[0, 'time'] = df.time[1]
+        except KeyError:
+            print('no key 1')
         df.index = pd.to_datetime(str(date) + " " + df["time"])
         df['code'] = code
         return df.drop("time", axis=1)
@@ -547,7 +551,7 @@ class ExEngine:
         self.api = TdxExHq_API(args, kwargs)
 
     def connect(self):
-        self.api.connect('61.152.107.141', 7727)
+        self.api.connect('61.152.107.14  1', 7727)
         return self
 
     def __enter__(self):
@@ -563,11 +567,83 @@ class ExEngine:
     def markets(self):
         return self.api.to_df(self.api.get_markets())
 
+class RQEngine(AsyncEngine):
+    def __init__(self, db_host=None, db_port=None, *args, **kwargs):
+        super(RQEngine, self).__init__(*args, **kwargs)
+        self.db_host = db_host
+        self.db_port = db_port
+        self.client = MongoClient(self.db_host, self.db_port)
+        self.stock_1d_db = self.client.rq_stock_1d_test
+        self.stock_1m_db = self.client.rq_stock_1m_test
+
+    # 从mongodb获取日数据
+    def get_async_security_bars(self, code, freq, start=None, end=None, index=False):
+        print('load daily bar from mongodb,  code: %s, start: %s, end %s' % (code, start, end))
+        rtn = []
+        if freq == '1d':
+            if not isinstance(code, list):
+                code = [code]
+            for c in code:
+                strcode = "%06d" % (int(c))
+                post = strcode
+                rawData = pd.DataFrame(list(
+                    self.stock_1d_db[post].find(
+                        {
+                            'datetime': {
+                            '$gte': pd.to_datetime(start), '$lte': pd.to_datetime(end)
+                            }
+                        }
+                )))
+                if len(rawData) == 0:
+                    yield int(strcode), rawData
+                try:
+                    rawData = rawData.drop(['_id'], axis=1)
+                    # datetime == series
+                    # print(rawData['datetime'][0] == '20050104')
+                    rawData.set_index('datetime', inplace=True)
+                    # rtn.append((int(strcode), rawData))
+                except:
+                    print(rawData)
+                    yield int(strcode), pd.DataFrame()
+                yield int(strcode), rawData
+
+    # 从mongodb获取分钟数据
+    def get_k_data(self, code, start, end, freq, check=True):
+        print('load k data from mongodb, code: %s, start: %s, end %s' % (code, start, end))
+        strcode = "%06d" % (int(code))
+        post = strcode
+        rawData = pd.DataFrame(list(
+            self.stock_1m_db[post].find(
+                {
+                    'time': {
+                        '$gte': pd.to_datetime(start), '$lte': pd.to_datetime(end)
+                    }
+                }))
+        )
+        if len(rawData) == 0:
+            yield int(strcode), rawData
+        try:
+            rawData = rawData.drop(['_id'], axis=1)
+            rawData.set_index('time', inplace=True)
+        except:
+            print(rawData)
+            yield int(strcode), pd.DataFrame()
+        return rawData
+
+
 
 if __name__ == '__main__':
-    aeg = AsyncEngine(ip='202.108.253.130', auto_retry=True, raise_exception=True)
-    aeg.connect()
-    start = pd.Timestamp('1990-12-19')
+    aeg = RQEngine(db_host="192.168.0.114", db_port=27016, ip='180.153.18.170', auto_retry=True, raise_exception=True)
+    # aeg.connect()
+    start = pd.Timestamp('2017-12-19')
     end  = pd.Timestamp('2018-02-02')
-    df = aeg.get_k_data('000049', start, end, '1m')
-    print(df)
+    df = aeg.get_k_data('000001', start, end, '1m')
+    df2 = aeg.get_async_security_bars("600618", '1d', start=start, end=end, index=False)
+
+    print("daily data")
+    # datetime amount close high low open vol code
+    print(df2)
+
+    # df = aeg.get_k_data('603023', start, end, '1m')
+    # # time open high low close volume code
+    # print(df)
