@@ -23,7 +23,7 @@ setup(
     install_requires=[
         'pytdx',
         'toolz',
-        'pandas<0.19,>=0.18.1',
+        'pandas<=0.22.0,>=0.18.1',
     ],
 
     package_data = {'tdx': ['data/*','data/blocknew/*']},
