@@ -76,7 +76,7 @@ class Engine:
             self.ip = kwargs.pop('ip')
         else:
             if kwargs.pop('best_ip', False):
-                self.ip = self.best_ip['ip']
+                self.ip = self.best_ip
                # port default 7709
             else:
                 self.ip = '14.17.75.71'
